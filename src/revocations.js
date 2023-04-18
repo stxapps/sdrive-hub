@@ -1,6 +1,5 @@
 import { Readable } from 'stream';
 import LRUCache from 'lru-cache';
-import fetch from 'node-fetch';
 
 import { logger } from './utils';
 import * as errors from './errors';
@@ -44,43 +43,26 @@ export class AuthTimestampCache {
   }
 
   async readAuthTimestamp(bucketAddress) {
-
     const authTimestampDir = this.getAuthTimestampFileDir(bucketAddress);
-
-    let fetchResponse;
     try {
-      const authNumberFileUrl = `${this.readUrlPrefix}${authTimestampDir}/${AUTH_TIMESTAMP_FILE_NAME}`;
-      fetchResponse = await fetch(authNumberFileUrl, {
-        redirect: 'manual',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
+      const result = await this.driver.performRead({
+        storageTopLevel: authTimestampDir,
+        path: AUTH_TIMESTAMP_FILE_NAME,
       });
+
+      const authNumberText = result.data;
+      const authNumber = parseInt(authNumberText);
+      if (Number.isFinite(authNumber)) {
+        return authNumber;
+      } else {
+        throw new errors.ValidationError(`Bucket contained an invalid authentication revocation timestamp: ${authNumberText}`);
+      }
     } catch (err) {
+      if (err instanceof errors.DoesNotExist) return 0;
+
       // Catch any errors that may occur from network issues during `fetch` async operation.
       const errMsg = (err instanceof Error) ? err.message : err;
       throw new errors.ValidationError(`Error trying to fetch bucket authentication revocation timestamp: ${errMsg}`);
-    }
-
-    if (fetchResponse.ok) {
-      try {
-        const authNumberText = await fetchResponse.text();
-        const authNumber = parseInt(authNumberText);
-        if (Number.isFinite(authNumber)) {
-          return authNumber;
-        } else {
-          throw new errors.ValidationError(`Bucket contained an invalid authentication revocation timestamp: ${authNumberText}`);
-        }
-      } catch (err) {
-        // Catch any errors that may occur from network issues during `.text()` async operation.
-        const errMsg = (err instanceof Error) ? err.message : err;
-        throw new errors.ValidationError(`Error trying to read fetch stream of bucket authentication revocation timestamp: ${errMsg}`);
-      }
-    } else if (fetchResponse.status === 404) {
-      // 404 incidates no revocation file has been created.
-      return 0;
-    } else {
-      throw new errors.ValidationError(`Error trying to fetch bucket authentication revocation timestamp: server returned ${fetchResponse.status} - ${fetchResponse.statusText}`);
     }
   }
 

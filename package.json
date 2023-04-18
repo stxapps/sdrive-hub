@@ -22,7 +22,6 @@
     "jsontokens": "^4.0.1",
     "lru-cache": "^8.0.5",
     "nanoid": "^4.0.2",
-    "node-fetch": "2.6.9",
     "tiny-secp256k1": "^2.2.1"
   }
 }
