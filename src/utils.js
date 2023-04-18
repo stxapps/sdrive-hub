@@ -87,5 +87,7 @@ export class AsyncMutexScope {
       this._opened.delete(id);
       throw error;
     }
+
+    return true;
   }
 }
