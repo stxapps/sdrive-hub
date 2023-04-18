@@ -6,10 +6,10 @@ export class ValidationError extends Error {
 }
 
 export class PreconditionFailedError extends Error {
-  constructor(message) {
+  constructor(message, expectedEtag = null) {
     super(message);
     this.name = this.constructor.name;
-    this.expectedEtag = null;
+    this.expectedEtag = expectedEtag;
   }
 }
 

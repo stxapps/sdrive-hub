@@ -215,7 +215,7 @@ export class HubServer {
         })).etag;
 
         if (ifMatchTag !== currentETag) {
-          throw new PreconditionFailedError('The provided ETag does not match that of the resource on the server');
+          throw new PreconditionFailedError('The provided ETag does not match that of the resource on the server', currentETag);
         }
       } else if (ifNoneMatchTag && ifNoneMatchTag === '*') {
         // only proceed with writing file if the file does not already exist
