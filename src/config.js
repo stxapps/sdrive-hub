@@ -13,7 +13,7 @@ const config = {
     "proofsRequired": 0
   },*/
   "pageSize": 1000,
-  "cacheControl": "",
+  "cacheControl": "public, max-age=1",
   "maxFileUploadSize": 20,
   "authTimestampCacheSize": 3000,
   //"whitelist": [],

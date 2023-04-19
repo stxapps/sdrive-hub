@@ -256,7 +256,7 @@ export class V1Authentication {
     if ('associationToken' in payload && payload.associationToken) {
       return this.checkAssociationToken(payload.associationToken, address);
     } else {
-      return address;
+      throw new ValidationError('Must provide `associationToken` in JWT.');
     }
   }
 }

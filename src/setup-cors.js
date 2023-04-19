@@ -15,7 +15,10 @@ const configureBucketCors = async () => {
   // forum.stacks.org/t/tech-preview-using-your-own-gaia-hub-with-the-cli/6160
   const origin = ['*'];
   const method = ['GET', 'HEAD'];
-  await storage.bucket(bucketName).setCorsConfiguration([{ method, origin }]);
+  const responseHeader = ['ETag'];
+  await storage.bucket(bucketName).setCorsConfiguration([
+    { method, origin, responseHeader },
+  ]);
 
   console.log(`Bucket ${bucketName} was updated with a CORS config to allow ${method} requests from ${origin}`);
 };
