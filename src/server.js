@@ -58,7 +58,7 @@ export class HubServer {
     this.validate(address, requestHeaders, oldestValidTokenTimestamp);
 
     const listFilesArgs = {
-      pathPrefix: address,
+      pathPrefix: address + '/', // to exclude ${address}-auth from revocation
       page: page
     };
 
@@ -166,13 +166,8 @@ export class HubServer {
   async handleRequest(address, path, requestHeaders, stream) {
     const oldestValidTokenTimestamp =
       await this.authTimestampCache.getAuthTimestamp(address);
-
     this.validate(address, requestHeaders, oldestValidTokenTimestamp);
 
-    let contentType = requestHeaders['content-type'];
-    if (contentType === null || contentType === undefined) {
-      contentType = 'application/octet-stream';
-    }
     // can the caller write? if so, in what paths?
     const scopes = getAuthenticationScopes(requestHeaders.authorization);
     const isArchivalRestricted = this.checkArchivalRestrictions(address, path, scopes);
@@ -228,6 +223,11 @@ export class HubServer {
           throw new PreconditionFailedError('The entity you are trying to create already exists');
         }
       }
+    }
+
+    let contentType = requestHeaders['content-type'];
+    if (contentType === null || contentType === undefined) {
+      contentType = 'application/octet-stream';
     }
 
     const contentLengthHeader = requestHeaders['content-length'];

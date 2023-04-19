@@ -5,7 +5,7 @@ import { decodeToken, TokenSigner, TokenVerifier } from 'jsontokens';
 import { ecPairToHexString, ecPairToAddress } from '@stacks/encryption';
 
 import { ValidationError, AuthTokenTimestampValidationError } from './errors';
-import { logger } from './utils';
+import { logger, isNumber } from './utils';
 
 export const LATEST_AUTH_VERSION = 'v1';
 const ECPair = ecpair.ECPairFactory(ecc);
@@ -74,7 +74,7 @@ export class V1Authentication {
     this.token = token;
   }
 
-  checkAssociationToken(token, bearerAddress) {
+  checkAssociationToken(token, bearerAddress, options) {
     // a JWT can have an `associationToken` that was signed by one of the
     // whitelisted addresses on this server.  This method checks a given
     // associationToken and verifies that it authorizes the "outer"
@@ -101,6 +101,24 @@ export class V1Authentication {
 
     if (!expiresAt) {
       throw new ValidationError('Must provide `exp` claim in association JWT.');
+    }
+
+    // check for revocations
+    if (
+      options &&
+      options.oldestValidTokenTimestamp &&
+      options.oldestValidTokenTimestamp > 0
+    ) {
+      const tokenIssuedAtDate = payload.iat;
+      const oldestValidTokenTimestamp = options.oldestValidTokenTimestamp;
+      if (!isNumber(tokenIssuedAtDate)) {
+        const message = `Gaia bucket requires auth token issued after ${oldestValidTokenTimestamp}` + ' but this token has no creation timestamp. This token may have been revoked by the user.';
+        throw new AuthTokenTimestampValidationError(message, oldestValidTokenTimestamp);
+      }
+      if (tokenIssuedAtDate < options.oldestValidTokenTimestamp) {
+        const message = `Gaia bucket requires auth token issued after ${oldestValidTokenTimestamp}` + ` but this token was issued ${tokenIssuedAtDate}.` + ' This token may have been revoked by the user.';
+        throw new AuthTokenTimestampValidationError(message, oldestValidTokenTimestamp);
+      }
     }
 
     const verified = new TokenVerifier('ES256K', publicKey).verify(token);
@@ -190,13 +208,14 @@ export class V1Authentication {
 
     // check for revocations
     if (
+      'iat' in payload &&
       options &&
       options.oldestValidTokenTimestamp &&
       options.oldestValidTokenTimestamp > 0
     ) {
       const tokenIssuedAtDate = payload.iat;
       const oldestValidTokenTimestamp = options.oldestValidTokenTimestamp;
-      if (!tokenIssuedAtDate) {
+      if (!isNumber(tokenIssuedAtDate)) {
         const message = `Gaia bucket requires auth token issued after ${oldestValidTokenTimestamp}` + ' but this token has no creation timestamp. This token may have been revoked by the user.';
         throw new AuthTokenTimestampValidationError(message, oldestValidTokenTimestamp);
       }
@@ -254,7 +273,7 @@ export class V1Authentication {
     }
 
     if ('associationToken' in payload && payload.associationToken) {
-      return this.checkAssociationToken(payload.associationToken, address);
+      return this.checkAssociationToken(payload.associationToken, address, options);
     } else {
       throw new ValidationError('Must provide `associationToken` in JWT.');
     }

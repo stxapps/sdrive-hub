@@ -92,7 +92,7 @@ class GcDriver {
     });
     const fileEntries = getFilesResult.files.map(file => {
       return {
-        name: file.name.slice(prefix.length + 1),
+        name: file.name.slice(prefix.length),
         file: file,
       };
     });
@@ -104,7 +104,9 @@ class GcDriver {
   }
 
   async listFiles(args) {
-    const listResult = await this.listAllObjects(args.pathPrefix, args.page);
+    const listResult = await this.listAllObjects(
+      args.pathPrefix, args.page, args.pageSize
+    );
     const result = {
       page: listResult.page,
       entries: listResult.entries.map(file => file.name),

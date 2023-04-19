@@ -50,7 +50,7 @@ export class AuthTimestampCache {
         path: AUTH_TIMESTAMP_FILE_NAME,
       });
 
-      const authNumberText = result.data;
+      const authNumberText = await new Response(result.data).text();
       const authNumber = parseInt(authNumberText);
       if (Number.isFinite(authNumber)) {
         return authNumber;
