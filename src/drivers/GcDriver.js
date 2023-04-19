@@ -154,7 +154,7 @@ class GcDriver {
     /*  > There is some overhead when using a resumable upload that can cause
         > noticeable performance degradation while uploading a series of small
         > files. When uploading files less than 10MB, it is recommended that
-        > the resumable feature is disabled."
+        > the resumable feature is disabled.
        For details see https://github.com/googleapis/nodejs-storage/issues/312 */
 
     const fileWriteStream = fileDestination.createWriteStream({
