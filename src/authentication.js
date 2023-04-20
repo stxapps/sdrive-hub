@@ -1,8 +1,7 @@
-import * as crypto from 'crypto';
 import * as ecpair from 'ecpair';
 import * as ecc from 'tiny-secp256k1';
-import { decodeToken, TokenSigner, TokenVerifier } from 'jsontokens';
-import { ecPairToHexString, ecPairToAddress } from '@stacks/encryption';
+import { decodeToken, TokenVerifier } from 'jsontokens';
+import { ecPairToAddress } from '@stacks/encryption';
 
 import { ValidationError, AuthTokenTimestampValidationError } from './errors';
 import { logger, isNumber } from './utils';
@@ -62,8 +61,7 @@ export const decodeTokenForPayload = (opts) => {
   try {
     return getTokenPayload(decodeToken(opts.encodedToken));
   } catch (e) {
-    logger.error(`${opts.validationErrorMsg}, ${e}`);
-    logger.error(opts.encodedToken);
+    logger.error(`${opts.encodedToken}: ${opts.validationErrorMsg}, ${e}`);
     throw new ValidationError(opts.validationErrorMsg);
   }
 };
@@ -72,6 +70,9 @@ export class V1Authentication {
 
   constructor(token) {
     this.token = token;
+    this.authPayload = null;
+    this.assoPayload = null;
+    this.assoIssAddress = null;
   }
 
   checkAssociationToken(token, bearerAddress, options) {
@@ -79,10 +80,9 @@ export class V1Authentication {
     // whitelisted addresses on this server.  This method checks a given
     // associationToken and verifies that it authorizes the "outer"
     // JWT's address (`bearerAddress`)
-
     const payload = decodeTokenForPayload({
       encodedToken: token,
-      validationErrorMsg: 'checkAssociationToken: Failed to decode association token in JWT',
+      validationErrorMsg: 'checkAssociationToken: Failed to decode association token',
     });
 
     // publicKey (the issuer of the association token)
@@ -136,8 +136,8 @@ export class V1Authentication {
       throw new ValidationError(`Association token child key ${childPublicKey} does not match ${bearerAddress}`);
     }
 
-    const signerAddress = ecPairToAddress(pubkeyHexToECPair(publicKey));
-    return signerAddress;
+    this.assoPayload = payload;
+    this.assoIssAddress = ecPairToAddress(pubkeyHexToECPair(publicKey));
   }
 
   parseAuthScopes() {
@@ -154,11 +154,7 @@ export class V1Authentication {
    * Returns [] if there is no association token, or if the association token has no scopes
    */
   getAuthenticationScopes() {
-
-    const payload = decodeTokenForPayload({
-      encodedToken: this.token,
-      validationErrorMsg: 'getAuthenticationScopes: Failed to decode authentication JWT',
-    });
+    const payload = this.authPayload; // if !this.authPayload, let it error!
 
     if (!payload['scopes']) {
       // not given
@@ -273,10 +269,12 @@ export class V1Authentication {
     }
 
     if ('associationToken' in payload && payload.associationToken) {
-      return this.checkAssociationToken(payload.associationToken, address, options);
+      this.checkAssociationToken(payload.associationToken, address, options);
     } else {
       throw new ValidationError('Must provide `associationToken` in JWT.');
     }
+
+    this.authPayload = payload;
   }
 }
 V1Authentication.fromAuthPart = (authPart) => {
@@ -284,64 +282,7 @@ V1Authentication.fromAuthPart = (authPart) => {
     throw new ValidationError('Authorization header should start with v1:');
   }
   const token = authPart.slice('v1:'.length);
-  const payload = decodeTokenForPayload({
-    encodedToken: token,
-    validationErrorMsg: 'fromAuthPart: Failed to decode authentication JWT',
-  });
-
-  const publicKey = payload.iss;
-  if (!publicKey) {
-    throw new ValidationError('Auth token should be a JWT with at least an `iss` claim');
-  }
-  const scopes = payload.scopes;
-  if (scopes) {
-    validateScopes(scopes);
-  }
   return new V1Authentication(token);
-};
-V1Authentication.makeAuthPart = (
-  secretKey, challengeText, associationToken, hubUrl, scopes, issuedAtDate
-) => {
-
-  const FOUR_MONTH_SECONDS = 60 * 60 * 24 * 31 * 4;
-  const publicKeyHex = secretKey.publicKey.toString('hex');
-  const salt = crypto.randomBytes(16).toString('hex');
-
-  if (scopes) {
-    validateScopes(scopes);
-  }
-
-  const payloadIssuedAtDate = issuedAtDate || (Date.now() / 1000 | 0);
-
-  const payload = {
-    gaiaChallenge: challengeText,
-    iss: publicKeyHex,
-    exp: FOUR_MONTH_SECONDS + (Date.now() / 1000),
-    iat: payloadIssuedAtDate,
-    associationToken,
-    hubUrl, salt, scopes,
-  };
-
-  const signerKeyHex = ecPairToHexString(secretKey).slice(0, 64);
-  const token = new TokenSigner('ES256K', signerKeyHex).sign(payload);
-  return `v1:${token}`;
-};
-V1Authentication.makeAssociationToken = (secretKey, childPublicKey) => {
-  const FOUR_MONTH_SECONDS = 60 * 60 * 24 * 31 * 4;
-  const publicKeyHex = secretKey.publicKey.toString('hex');
-  const salt = crypto.randomBytes(16).toString('hex');
-  const payload = {
-    childToAssociate: childPublicKey,
-    iss: publicKeyHex,
-    exp: FOUR_MONTH_SECONDS + (Date.now() / 1000),
-    iat: (Date.now() / 1000 | 0),
-    gaiaChallenge: String(undefined),
-    salt,
-  };
-
-  const signerKeyHex = ecPairToHexString(secretKey).slice(0, 64);
-  const token = new TokenSigner('ES256K', signerKeyHex).sign(payload);
-  return token;
 };
 
 export const getChallengeText = (myURL) => {
@@ -372,7 +313,7 @@ export const parseAuthHeader = (authHeader) => {
 
 export const validateAuthorizationHeader = (
   authHeader, serverName, address, requireCorrectHubUrl, validHubUrls,
-  oldestValidTokenTimestamp
+  oldestValidTokenTimestamp, whitelist,
 ) => {
   const serverNameHubUrl = `https://${serverName}`;
   if (!validHubUrls) {
@@ -387,7 +328,6 @@ export const validateAuthorizationHeader = (
   } catch (err) {
     logger.error(err);
   }
-
   if (!authObject) {
     throw new ValidationError('Failed to parse authentication header.');
   }
@@ -395,24 +335,18 @@ export const validateAuthorizationHeader = (
   const challengeTexts = [];
   challengeTexts.push(getChallengeText(serverName));
 
-  return authObject.isAuthenticationValid(
+  authObject.isAuthenticationValid(
     address,
     challengeTexts,
     { validHubUrls, requireCorrectHubUrl, oldestValidTokenTimestamp }
   );
-};
 
-/*
- * Get the authentication scopes from the authorization header.
- * Does not check the authorization header or its association token
- * (do that with validateAuthorizationHeader first).
- *
- * Returns the scopes on success
- * Throws on malformed auth header
- */
-export const getAuthenticationScopes = (authHeader) => {
-  const authObject = parseAuthHeader(authHeader);
-  return authObject.parseAuthScopes();
+  const signingAddress = authObject.assoIssAddress;
+  if (whitelist && !(whitelist.includes(signingAddress))) {
+    throw new ValidationError(`Address ${signingAddress} not authorized for writes`);
+  }
+
+  return authObject;
 };
 
 /*

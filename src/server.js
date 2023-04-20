@@ -1,6 +1,4 @@
-import {
-  validateAuthorizationHeader, getAuthenticationScopes
-} from './authentication';
+import { validateAuthorizationHeader } from './authentication';
 import {
   ValidationError, DoesNotExist, PayloadTooLargeError, PreconditionFailedError,
 } from './errors';
@@ -28,34 +26,34 @@ export class HubServer {
   }
 
   async handleAuthBump(address, oldestValidTimestamp, requestHeaders) {
-    this.validate(address, requestHeaders);
+    this.validate(address, requestHeaders, null);
     await this.authTimestampCache.setAuthTimestamp(address, oldestValidTimestamp);
   }
 
   // throws exception on validation error
   //   otherwise returns void.
   validate(address, requestHeaders, oldestValidTokenTimestamp) {
-    const signingAddress = validateAuthorizationHeader(
+    const authObject = validateAuthorizationHeader(
       requestHeaders.authorization,
       this.serverName,
       address,
       this.requireCorrectHubUrl,
       this.validHubUrls,
-      oldestValidTokenTimestamp
+      oldestValidTokenTimestamp,
+      this.whitelist,
     );
-
-    if (this.whitelist && !(this.whitelist.includes(signingAddress))) {
-      throw new ValidationError(`Address ${signingAddress} not authorized for writes`);
-    }
+    return authObject;
   }
 
   async handleListFiles(address, page, stat, requestHeaders) {
     const oldestValidTokenTimestamp =
       await this.authTimestampCache.getAuthTimestamp(address);
-    const scopes = getAuthenticationScopes(requestHeaders.authorization);
-    const isArchivalRestricted = this.isArchivalRestricted(scopes);
+    const authObject = this.validate(
+      address, requestHeaders, oldestValidTokenTimestamp
+    );
 
-    this.validate(address, requestHeaders, oldestValidTokenTimestamp);
+    const scopes = authObject.parseAuthScopes();
+    const isArchivalRestricted = this.isArchivalRestricted(scopes);
 
     const listFilesArgs = {
       pathPrefix: address + '/', // to exclude ${address}-auth from revocation
@@ -123,10 +121,12 @@ export class HubServer {
   async handleDelete(address, path, requestHeaders) {
     const oldestValidTokenTimestamp =
       await this.authTimestampCache.getAuthTimestamp(address);
-    this.validate(address, requestHeaders, oldestValidTokenTimestamp);
+    const authObject = this.validate(
+      address, requestHeaders, oldestValidTokenTimestamp
+    );
 
     // can the caller delete? if so, in what paths?
-    const scopes = getAuthenticationScopes(requestHeaders.authorization);
+    const scopes = authObject.parseAuthScopes();
     const isArchivalRestricted = this.checkArchivalRestrictions(address, path, scopes);
 
     if (scopes.deletePrefixes.length > 0 || scopes.deletePaths.length > 0) {
@@ -166,10 +166,12 @@ export class HubServer {
   async handleRequest(address, path, requestHeaders, stream) {
     const oldestValidTokenTimestamp =
       await this.authTimestampCache.getAuthTimestamp(address);
-    this.validate(address, requestHeaders, oldestValidTokenTimestamp);
+    const authObject = this.validate(
+      address, requestHeaders, oldestValidTokenTimestamp
+    );
 
     // can the caller write? if so, in what paths?
-    const scopes = getAuthenticationScopes(requestHeaders.authorization);
+    const scopes = authObject.parseAuthScopes();
     const isArchivalRestricted = this.checkArchivalRestrictions(address, path, scopes);
 
     if (scopes.writePrefixes.length > 0 || scopes.writePaths.length > 0) {
