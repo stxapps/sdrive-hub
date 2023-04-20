@@ -18,7 +18,7 @@ export class HubServer {
     this.readURL = config.readURL;
     this.requireCorrectHubUrl = config.requireCorrectHubUrl || false;
     this.authTimestampCache = new AuthTimestampCache(
-      this.getReadURLPrefix(), driver, config.authTimestampCacheSize
+      driver, config.authTimestampCacheSize
     );
     this.maxFileUploadSizeMB = (config.maxFileUploadSize || 20);
     // megabytes to bytes

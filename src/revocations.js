@@ -1,14 +1,10 @@
-import { Readable } from 'stream';
-import LRUCache from 'lru-cache';
+import { LRUCache } from 'lru-cache';
 
 import { logger } from './utils';
-import * as errors from './errors';
-
-const AUTH_TIMESTAMP_FILE_NAME = 'authTimestamp';
 
 export class AuthTimestampCache {
 
-  constructor(readUrlPrefix, driver, maxCacheSize) {
+  constructor(driver, maxCacheSize) {
     this.currentCacheEvictions = 0;
     this.cache = new LRUCache({
       max: maxCacheSize,
@@ -16,8 +12,9 @@ export class AuthTimestampCache {
       dispose: () => {
         this.currentCacheEvictions++
       },
+      ttl: 15 * 60 * 1000,
+      ttlResolution: 60 * 1000,
     });
-    this.readUrlPrefix = readUrlPrefix;
     this.driver = driver;
 
     const tenMinutes = 1000 * 60 * 10;
@@ -38,34 +35,6 @@ export class AuthTimestampCache {
     }
   }
 
-  getAuthTimestampFileDir(bucketAddress) {
-    return `${bucketAddress}-auth`;
-  }
-
-  async readAuthTimestamp(bucketAddress) {
-    const authTimestampDir = this.getAuthTimestampFileDir(bucketAddress);
-    try {
-      const result = await this.driver.performRead({
-        storageTopLevel: authTimestampDir,
-        path: AUTH_TIMESTAMP_FILE_NAME,
-      });
-
-      const authNumberText = await new Response(result.data).text();
-      const authNumber = parseInt(authNumberText);
-      if (Number.isFinite(authNumber)) {
-        return authNumber;
-      } else {
-        throw new errors.ValidationError(`Bucket contained an invalid authentication revocation timestamp: ${authNumberText}`);
-      }
-    } catch (err) {
-      if (err instanceof errors.DoesNotExist) return 0;
-
-      // Catch any errors that may occur from network issues during `fetch` async operation.
-      const errMsg = (err instanceof Error) ? err.message : err;
-      throw new errors.ValidationError(`Error trying to fetch bucket authentication revocation timestamp: ${errMsg}`);
-    }
-  }
-
   async getAuthTimestamp(bucketAddress) {
     // First perform fast check if auth number exists in cache..
     let authTimestamp = this.cache.get(bucketAddress);
@@ -74,12 +43,12 @@ export class AuthTimestampCache {
     }
 
     // Nothing in cache, perform slower driver read.
-    authTimestamp = await this.readAuthTimestamp(bucketAddress);
+    authTimestamp = await this.driver.performReadAuthTimestamp({ bucketAddress });
 
     // Recheck cache for a larger timestamp to avoid race conditions from slow storage.
     const cachedTimestamp = this.cache.get(bucketAddress);
     if (cachedTimestamp && cachedTimestamp > authTimestamp) {
-      authTimestamp = cachedTimestamp;
+      return cachedTimestamp;
     }
 
     // Cache result for fast lookup later.
@@ -88,41 +57,21 @@ export class AuthTimestampCache {
     return authTimestamp;
   }
 
-  async writeAuthTimestamp(bucketAddress, timestamp) {
+  async setAuthTimestamp(bucketAddress, timestamp) {
     // Recheck cache for a larger timestamp to avoid race conditions from slow storage.
     let cachedTimestamp = this.cache.get(bucketAddress);
     if (cachedTimestamp && cachedTimestamp > timestamp) {
       return;
     }
 
-    const authTimestampFileDir = this.getAuthTimestampFileDir(bucketAddress);
-
-    // Convert our number to a Buffer.
-    const contentBuffer = Buffer.from(timestamp.toString(), 'utf8');
-
-    // Wrap the buffer in a stream for driver consumption.
-    const contentStream = new Readable();
-    contentStream.push(contentBuffer, 'utf8');
-    contentStream.push(null); // Mark EOF
-
-    await this.driver.performWrite({
-      storageTopLevel: authTimestampFileDir,
-      path: AUTH_TIMESTAMP_FILE_NAME,
-      stream: contentStream,
-      contentLength: contentBuffer.length,
-      contentType: 'text/plain; charset=UTF-8'
-    });
+    await this.driver.performWriteAuthTimestamp({ bucketAddress, timestamp });
 
     // In a race condition, use the newest timestamp.
     cachedTimestamp = this.cache.get(bucketAddress);
     if (cachedTimestamp && cachedTimestamp > timestamp) {
-      timestamp = cachedTimestamp;
+      return;
     }
 
     this.cache.set(bucketAddress, timestamp);
-  }
-
-  async setAuthTimestamp(bucketAddress, timestamp) {
-    await this.writeAuthTimestamp(bucketAddress, (timestamp | 0));
   }
 }

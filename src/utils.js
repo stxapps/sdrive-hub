@@ -93,6 +93,10 @@ export class AsyncMutexScope {
   }
 }
 
+export const sample = (arr) => {
+  return arr[Math.floor(Math.random() * arr.length)];
+};
+
 export const isObject = (val) => {
   return typeof val === 'object' && val !== null;
 };
@@ -104,3 +108,5 @@ export const isString = (val) => {
 export const isNumber = (val) => {
   return typeof val === 'number' && isFinite(val);
 };
+
+export const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));

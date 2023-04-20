@@ -1,7 +1,11 @@
+import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
 
+import { REVOCATION } from '../const';
 import { BadPathError, InvalidInputError, DoesNotExist } from '../errors';
-import { pipelineAsync, logger, dateToUnixTimeSeconds } from '../utils';
+import {
+  pipelineAsync, logger, dateToUnixTimeSeconds, sample, isObject, isNumber, sleep,
+} from '../utils';
 
 const isPathValid = (path) => {
   // for now, only disallow double dots.
@@ -29,6 +33,7 @@ const parseFileMetadataStat = (metadata) => {
 class GcDriver {
 
   constructor(config) {
+    this.datastore = new Datastore();
     this.storage = new Storage();
     this.bucket = config.bucket;
     this.pageSize = config.pageSize ? config.pageSize : 100;
@@ -153,10 +158,10 @@ class GcDriver {
       .bucket(this.bucket)
       .file(filename);
 
-    /*  > There is some overhead when using a resumable upload that can cause
-        > noticeable performance degradation while uploading a series of small
-        > files. When uploading files less than 10MB, it is recommended that
-        > the resumable feature is disabled.
+    /* There is some overhead when using a resumable upload that can cause
+       noticeable performance degradation while uploading a series of small
+       files. When uploading files less than 10MB, it is recommended that
+       the resumable feature is disabled.
        For details see https://github.com/googleapis/nodejs-storage/issues/312 */
 
     const fileWriteStream = fileDestination.createWriteStream({
@@ -278,6 +283,65 @@ class GcDriver {
       logger.error(`failed to rename ${filename} to ${newFilename} in bucket ${this.bucket}`);
       throw new Error('Google cloud storage failure: failed to rename' +
         ` ${filename} to ${newFilename} in bucket ${this.bucket}: ${error}`);
+    }
+  }
+
+  async performWriteAuthTimestamp(args) {
+    const { bucketAddress, timestamp } = args;
+
+    const key = this.datastore.key([REVOCATION, bucketAddress]);
+    const data = [
+      { name: 'timestamp', value: timestamp, excludeFromIndexes: true },
+    ];
+    const entity = { key, data };
+
+    const nTries = 2;
+    for (let currentTry = 1; currentTry <= nTries; currentTry++) {
+      const transaction = this.datastore.transaction();
+      try {
+        await transaction.run();
+
+        const [oEy] = await transaction.get(key);
+        if (!isObject(oEy) || !isNumber(oEy.timestamp) || oEy.timestamp < timestamp) {
+          transaction.save(entity);
+        }
+
+        await transaction.commit();
+        return;
+      } catch (error) {
+        await transaction.rollback();
+
+        if (currentTry < nTries) await sleep(sample([100, 200, 280, 350, 500]));
+        else throw error;
+      }
+    }
+  }
+
+  async performReadAuthTimestamp(args) {
+    const { bucketAddress } = args;
+
+    const key = this.datastore.key([REVOCATION, bucketAddress]);
+
+    const nTries = 2;
+    for (let currentTry = 1; currentTry <= nTries; currentTry++) {
+      const transaction = this.datastore.transaction({ readOnly: true });
+      try {
+        await transaction.run();
+        const [entity] = await transaction.get(key);
+        await transaction.commit();
+
+        let timestamp = 0;
+        if (isObject(entity) && isNumber(entity.timestamp)) {
+          timestamp = entity.timestamp;
+        }
+
+        return timestamp;
+      } catch (error) {
+        await transaction.rollback();
+
+        if (currentTry < nTries) await sleep(sample([100, 200, 280, 350, 500]));
+        else throw error;
+      }
     }
   }
 }

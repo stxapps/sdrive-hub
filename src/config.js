@@ -15,7 +15,7 @@ const config = {
   'pageSize': 1000,
   'cacheControl': 'public, max-age=1',
   'maxFileUploadSize': 20,
-  'authTimestampCacheSize': 3000,
+  'authTimestampCacheSize': 800,
   //'whitelist': [],
   /*'argsTransport': {
     'level': 'debug',
