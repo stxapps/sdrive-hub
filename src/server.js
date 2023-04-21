@@ -145,6 +145,12 @@ export class HubServer {
       }
     }
 
+    const ifMatchTag = requestHeaders['if-match'];
+    const ifNoneMatchTag = requestHeaders['if-none-match'];
+    if (ifNoneMatchTag) {
+      throw new PreconditionFailedError('Not support if-none-match for file deletion.');
+    }
+
     if (isArchivalRestricted) {
       // if archival restricted then just rename the canonical file to the historical file
       const historicalPath = this.getHistoricalFileName(path);
@@ -152,12 +158,16 @@ export class HubServer {
         path: path,
         storageTopLevel: address,
         newPath: historicalPath,
+        ifMatchTag: ifMatchTag,
+        assoIssAddress: authObject.assoIssAddress,
       };
       await this.driver.performRename(renameCommand);
     } else {
       const deleteCommand = {
         storageTopLevel: address,
         path,
+        ifMatchTag: ifMatchTag,
+        assoIssAddress: authObject.assoIssAddress,
       };
       await this.driver.performDelete(deleteCommand);
     }
@@ -192,39 +202,13 @@ export class HubServer {
 
     const ifMatchTag = requestHeaders['if-match'];
     const ifNoneMatchTag = requestHeaders['if-none-match'];
-
     // only one match-tag header should be set
     if (ifMatchTag && ifNoneMatchTag) {
       throw new PreconditionFailedError('Request should not contain both if-match and if-none-match headers');
     }
-
     // only support using if-none-match for file creation, values that aren't the wildcard are prohibited
     if (ifNoneMatchTag && ifNoneMatchTag !== '*') {
       throw new PreconditionFailedError('Misuse of the if-none-match header. Expected to be * on write requests.');
-    }
-    // handle etag matching if not supported at the driver level
-    if (!this.driver.supportsETagMatching) {
-      // allow overwrites if tag is wildcard
-      if (ifMatchTag && ifMatchTag !== '*') {
-        const currentETag = (await this.driver.performStat({
-          path: path,
-          storageTopLevel: address
-        })).etag;
-
-        if (ifMatchTag !== currentETag) {
-          throw new PreconditionFailedError('The provided ETag does not match that of the resource on the server', currentETag);
-        }
-      } else if (ifNoneMatchTag && ifNoneMatchTag === '*') {
-        // only proceed with writing file if the file does not already exist
-        const statResult = await this.driver.performStat({
-          path: path,
-          storageTopLevel: address
-        });
-
-        if (statResult.exists) {
-          throw new PreconditionFailedError('The entity you are trying to create already exists');
-        }
-      }
     }
 
     let contentType = requestHeaders['content-type'];
@@ -253,6 +237,8 @@ export class HubServer {
           path: path,
           storageTopLevel: address,
           newPath: historicalPath,
+          ifMatchTag: ifMatchTag,
+          assoIssAddress: authObject.assoIssAddress,
         });
       } catch (error) {
         if (error instanceof DoesNotExist) {
@@ -305,13 +291,14 @@ export class HubServer {
       stream: monitoredStream,
       contentType,
       contentLength: contentLengthBytes,
-      ifMatch: ifMatchTag,
-      ifNoneMatch: ifNoneMatchTag,
+      ifMatchTag: ifMatchTag,
+      ifNoneMatchTag: ifNoneMatchTag,
+      assoIssAddress: authObject.assoIssAddress,
     };
-
     const [writeResponse] = await Promise.all([
       this.driver.performWrite(writeCommand), pipelinePromise,
     ]);
+
     const readURL = writeResponse.publicURL;
     const driverPrefix = this.driver.getReadURLPrefix();
     const readURLPrefix = this.getReadURLPrefix();
