@@ -193,7 +193,7 @@ class GcDriver {
       logger.debug(`storing ${filename} in bucket ${this.bucket}`);
     } catch (error) {
       if (error.code === 412) {
-        throw new PreconditionFailedError('The provided generation does not match the resource on the server', generation);
+        throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
       logger.error(`failed to store ${filename} in bucket ${this.bucket}`);
       throw new Error('Google cloud storage failure: failed to store' +
@@ -233,7 +233,7 @@ class GcDriver {
         throw new DoesNotExist('File does not exist');
       }
       if (error.code === 412) {
-        throw new PreconditionFailedError('The provided generation does not match the resource on the server', generation);
+        throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
       logger.error(`failed to delete ${filename} in bucket ${this.bucket}`);
       throw new Error('Google cloud storage failure: failed to delete' +
@@ -339,7 +339,7 @@ class GcDriver {
         throw new DoesNotExist('File does not exist');
       }
       if (error.code === 412) {
-        throw new PreconditionFailedError('The provided generation does not match the resource on the server', generation);
+        throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
       logger.error(`failed to rename ${filename} to ${newFilename} in bucket ${this.bucket}`);
       throw new Error('Google cloud storage failure: failed to rename' +

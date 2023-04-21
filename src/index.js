@@ -139,6 +139,10 @@ app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
         writeResponse(res, { message: err.message, error: err.name }, 404);
       } else if (err instanceof errors.NotEnoughProofError) {
         writeResponse(res, { message: err.message, error: err.name }, 402);
+      } else if (err instanceof errors.PreconditionFailedError) {
+        writeResponse(
+          res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
+        );
       } else {
         writeResponse(res, { message: 'Server Error' }, 500);
       }
