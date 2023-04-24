@@ -228,7 +228,7 @@ export class V1Authentication {
     }
 
     if (options && options.requireCorrectHubUrl) {
-      let claimedHub = payload.hubUrl;
+      let claimedHub = payload.hubUrl || payload.gaiaHubUrl;
       if (!claimedHub) {
         throw new ValidationError('Authentication must provide a claimed hub. You may need to update stacks.js.');
       }
@@ -271,7 +271,9 @@ export class V1Authentication {
     if ('associationToken' in payload && payload.associationToken) {
       this.checkAssociationToken(payload.associationToken, address, options);
     } else {
-      throw new ValidationError('Must provide `associationToken` in JWT.');
+      // Storing wallet-config.js or profile.json,
+      //   the authToken doesn't have association key as no app yet!
+      //throw new ValidationError('Must provide `associationToken` in JWT.');
     }
 
     this.authPayload = payload;
@@ -341,7 +343,7 @@ export const validateAuthorizationHeader = (
     { validHubUrls, requireCorrectHubUrl, oldestValidTokenTimestamp }
   );
 
-  const signingAddress = authObject.assoIssAddress;
+  const signingAddress = authObject.assoIssAddress || address;
   if (whitelist && !(whitelist.includes(signingAddress))) {
     throw new ValidationError(`Address ${signingAddress} not authorized for writes`);
   }
