@@ -2,7 +2,7 @@ const config = {
   'serverName': 'hub.stacksdrive.com',
   //'port': 4000,
   'requireCorrectHubUrl': true,
-  //'validHubUrls': ['https://hub.stacksdrive.com'],
+  //'validHubUrls': ['http://localhost:8088'],
   'driver': 'google-cloud',
   'bucket': 'sdrive-001.appspot.com',
   /*'gcCredentials': {

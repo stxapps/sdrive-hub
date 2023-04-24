@@ -4,7 +4,7 @@ import {
 } from './errors';
 import { AuthTimestampCache } from './revocations';
 import {
-  logger, generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress,
+  generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress,
 } from './utils';
 
 export class HubServer {
@@ -21,7 +21,6 @@ export class HubServer {
       driver, config.authTimestampCacheSize
     );
     this.maxFileUploadSizeMB = (config.maxFileUploadSize || 20);
-    // megabytes to bytes
     this.maxFileUploadSizeBytes = megabytesToBytes(this.maxFileUploadSizeMB);
   }
 
@@ -30,8 +29,6 @@ export class HubServer {
     await this.authTimestampCache.setAuthTimestamp(address, oldestValidTimestamp);
   }
 
-  // throws exception on validation error
-  //   otherwise returns void.
   validate(address, requestHeaders, oldestValidTokenTimestamp) {
     const authObject = validateAuthorizationHeader(
       requestHeaders.authorization,
@@ -226,7 +223,6 @@ export class HubServer {
         `Max file upload size is ${this.maxFileUploadSizeMB} megabytes. ` +
         `Rejected Content-Length of ${bytesToMegabytes(contentLengthBytes, 4)} megabytes`
       );
-      logger.warn(`${errMsg}, address: ${address}`);
       throw new PayloadTooLargeError(errMsg);
     }
 
@@ -242,15 +238,12 @@ export class HubServer {
         });
       } catch (error) {
         if (error instanceof DoesNotExist) {
-          // ignore
-          logger.debug(
+          console.debug(
             '404 on putFileArchival rename attempt -- usually this is okay and ' +
             'only indicates that this is the first time the file was written: ' +
             `${address}/${path}`
           );
         } else {
-          logger.error(`Error performing historical file rename: ${address}/${path}`);
-          logger.error(error);
           throw error;
         }
       }
@@ -274,7 +267,7 @@ export class HubServer {
           );
           // Log error -- this situation is indicative of a malformed client request
           // where the reported Content-Size is less than the upload size.
-          logger.warn(`${errMsg}, address: ${address}`);
+          console.warn(`${errMsg}, address: ${address}`);
 
           // Destroy the request stream -- cancels reading from the client
           // and cancels uploading to the storage driver.

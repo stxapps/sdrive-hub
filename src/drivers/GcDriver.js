@@ -6,7 +6,7 @@ import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
 } from '../errors';
 import {
-  pipelineAsync, logger, dateToUnixTimeSeconds, sample, isObject, isNumber, sleep,
+  pipelineAsync, dateToUnixTimeSeconds, sample, isObject, isNumber, sleep,
 } from '../utils';
 
 const isPathValid = (path) => {
@@ -58,22 +58,16 @@ class GcDriver {
   }
 
   async createIfNeeded() {
-    try {
-      const bucket = this.storage.bucket(this.bucket);
-      const [exists] = await bucket.exists();
-      if (!exists) {
-        throw new Error('failed to initialize google cloud storage bucket');
-      }
-    } catch (err) {
-      logger.error(`failed to connect to google cloud storage bucket: ${err}`);
-      throw err;
+    const bucket = this.storage.bucket(this.bucket);
+    const [exists] = await bucket.exists();
+    if (!exists) {
+      throw new Error('failed to initialize google cloud storage bucket');
     }
   }
 
   async deleteEmptyBucket() {
     const files = await this.listFiles({ pathPrefix: '' });
     if (files.entries.length > 0) {
-      /* istanbul ignore next */
       throw new Error('Tried deleting non-empty bucket');
     }
     await this.storage.bucket(this.bucket).delete();
@@ -190,14 +184,12 @@ class GcDriver {
 
     try {
       await pipelineAsync(args.stream, fileWriteStream);
-      logger.debug(`storing ${filename} in bucket ${this.bucket}`);
     } catch (error) {
       if (error.code === 412) {
         throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
-      logger.error(`failed to store ${filename} in bucket ${this.bucket}`);
-      throw new Error('Google cloud storage failure: failed to store' +
-        ` ${filename} in bucket ${this.bucket}: ${error}`);
+
+      throw error;
     }
 
     const updatedStat = parseFileMetadataStat(bucketFile.metadata)
@@ -235,9 +227,8 @@ class GcDriver {
       if (error.code === 412) {
         throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
-      logger.error(`failed to delete ${filename} in bucket ${this.bucket}`);
-      throw new Error('Google cloud storage failure: failed to delete' +
-        ` ${filename} in bucket ${this.bucket}: ${error}`);
+
+      throw error;
     }
 
     await this.saveFileLog(
@@ -267,9 +258,8 @@ class GcDriver {
       if (error.code === 404) {
         throw new DoesNotExist('File does not exist');
       }
-      logger.error(`failed to read ${filename} in bucket ${this.bucket}`);
-      throw new Error('Google cloud storage failure: failed to read' +
-        ` ${filename} in bucket ${this.bucket}: ${error}`);
+
+      throw error;
     }
   }
 
@@ -285,9 +275,8 @@ class GcDriver {
         };
         return result;
       }
-      logger.error(`failed to stat ${filename} in bucket ${this.bucket}`);
-      throw new Error('Google cloud storage failure: failed to stat ' +
-        ` ${filename} in bucket ${this.bucket}: ${error}`);
+
+      throw error;
     }
   }
 
@@ -341,9 +330,8 @@ class GcDriver {
       if (error.code === 412) {
         throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
       }
-      logger.error(`failed to rename ${filename} to ${newFilename} in bucket ${this.bucket}`);
-      throw new Error('Google cloud storage failure: failed to rename' +
-        ` ${filename} to ${newFilename} in bucket ${this.bucket}: ${error}`);
+
+      throw error;
     }
 
     await this.saveFileLog(args.storageTopLevel, args.assoIssAddress, 0);
@@ -422,7 +410,7 @@ class GcDriver {
       await this.datastore.save({ key: this.datastore.key([FILE_LOG]), data: logData });
     } catch (error) {
       // Just log. Bucket size will be wrong but need to recal direclty from Storage.
-      logger.error(`failed to save FileLog with ${bucketAddress}, ${assoIssAddress}, and ${sizeChange}`);
+      console.error(error);
     }
   }
 }

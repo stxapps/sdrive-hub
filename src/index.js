@@ -4,7 +4,7 @@ import cors from 'cors';
 import { getChallengeText, LATEST_AUTH_VERSION } from './authentication';
 import { HubServer } from './server';
 import GcDriver from './drivers/GcDriver'
-import { logger, AsyncMutexScope } from './utils';
+import { AsyncMutexScope } from './utils';
 import * as errors from './errors';
 import config from './config';
 
@@ -36,7 +36,7 @@ if (config.driverInstance) {
   throw new Error('Driver option not configured');
 }
 driver.ensureInitialized().catch(error => {
-  logger.error(`Failed to initialize driver ${error})`);
+  console.error(error);
   process.exit();
 })
 
@@ -76,7 +76,6 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
       );
       writeResponse(res, responseData, 202);
     } catch (err) {
-      logger.error(err);
       if (err instanceof errors.ValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.AuthTokenTimestampValidationError) {
@@ -94,6 +93,7 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
           res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
         );
       } else {
+        console.error(err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
@@ -102,14 +102,13 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
   try {
     if (!asyncMutex.tryAcquire(endpoint, handleRequest)) {
       const errMsg = `Concurrent operation (store) attempted on ${endpoint}`;
-      logger.error(errMsg);
       writeResponse(res, {
         message: errMsg,
         error: errors.ConflictError.name,
       }, 409);
     }
   } catch (err) {
-    logger.error(err);
+    console.error(err);
     writeResponse(res, { message: 'Server Error' }, 500);
   }
 });
@@ -128,7 +127,6 @@ app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
       res.writeHead(202);
       res.end();
     } catch (err) {
-      logger.error(err);
       if (err instanceof errors.ValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.AuthTokenTimestampValidationError) {
@@ -144,6 +142,7 @@ app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
           res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
         );
       } else {
+        console.error(err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
@@ -152,14 +151,13 @@ app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
   try {
     if (!asyncMutex.tryAcquire(endpoint, handleRequest)) {
       const errMsg = `Concurrent operation (delete) attempted on ${endpoint}`;
-      logger.error(errMsg);
       writeResponse(res, {
         message: errMsg,
         error: errors.ConflictError.name,
       }, 409);
     }
   } catch (err) {
-    logger.error(err);
+    console.error(err);
     writeResponse(res, { message: 'Server Error' }, 500);
   }
 });
@@ -184,12 +182,12 @@ app.post(
         writeResponse(res, { entries: files.entries, page: files.page }, 202);
       })
       .catch((err) => {
-        logger.error(err);
         if (err instanceof errors.ValidationError) {
           writeResponse(res, { message: err.message, error: err.name }, 401);
         } else if (err instanceof errors.AuthTokenTimestampValidationError) {
           writeResponse(res, { message: err.message, error: err.name }, 401);
         } else {
+          console.error(err);
           writeResponse(res, { message: 'Server Error' }, 500);
         }
       });
@@ -226,12 +224,12 @@ app.post(
         writeResponse(res, { status: 'success' }, 202);
       })
       .catch((err) => {
-        logger.error(err);
         if (err instanceof errors.ValidationError) {
           writeResponse(res, { message: err.message, error: err.name }, 401);
         } else if (err instanceof errors.BadPathError) {
           writeResponse(res, { message: err.message, error: err.name }, 403);
         } else {
+          console.error(err);
           writeResponse(res, { message: 'Server Error' }, 500);
         }
       });

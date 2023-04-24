@@ -11,13 +11,6 @@ export const generateUniqueID = () => {
 
 export const pipelineAsync = promisify(stream.pipeline);
 
-export const logger = {
-  error: (msg) => console.error(msg),
-  warn: (msg) => console.warn(msg),
-  info: (msg) => console.log(msg),
-  debug: (msg) => console.debug(msg),
-};
-
 export const megabytesToBytes = (megabytes) => {
   return megabytes * 1024 * 1024;
 };

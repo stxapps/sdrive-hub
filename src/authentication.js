@@ -4,7 +4,7 @@ import { decodeToken, TokenVerifier } from 'jsontokens';
 import { ecPairToAddress } from '@stacks/encryption';
 
 import { ValidationError, AuthTokenTimestampValidationError } from './errors';
-import { logger, isNumber } from './utils';
+import { isNumber } from './utils';
 
 export const LATEST_AUTH_VERSION = 'v1';
 const ECPair = ecpair.ECPairFactory(ecc);
@@ -61,7 +61,6 @@ export const decodeTokenForPayload = (opts) => {
   try {
     return getTokenPayload(decodeToken(opts.encodedToken));
   } catch (e) {
-    logger.error(`${opts.encodedToken}: ${opts.validationErrorMsg}, ${e}`);
     throw new ValidationError(opts.validationErrorMsg);
   }
 };
@@ -121,7 +120,12 @@ export class V1Authentication {
       }
     }
 
-    const verified = new TokenVerifier('ES256K', publicKey).verify(token);
+    let verified;
+    try {
+      verified = new TokenVerifier('ES256K', publicKey).verify(token);
+    } catch (err) {
+      throw new ValidationError('Failed to verify association JWT: invalid issuer');
+    }
     if (!verified) {
       throw new ValidationError('Failed to verify association JWT: invalid issuer');
     }
@@ -254,7 +258,6 @@ export class V1Authentication {
     } catch (err) {
       throw new ValidationError('Failed to verify supplied authentication JWT');
     }
-
     if (!verified) {
       throw new ValidationError('Failed to verify supplied authentication JWT');
     }
@@ -317,21 +320,13 @@ export const validateAuthorizationHeader = (
   authHeader, serverName, address, requireCorrectHubUrl, validHubUrls,
   oldestValidTokenTimestamp, whitelist,
 ) => {
+  const authObject = parseAuthHeader(authHeader);
+
   const serverNameHubUrl = `https://${serverName}`;
   if (!validHubUrls) {
     validHubUrls = [serverNameHubUrl];
   } else if (!validHubUrls.includes(serverNameHubUrl)) {
     validHubUrls.push(serverNameHubUrl);
-  }
-
-  let authObject = null;
-  try {
-    authObject = parseAuthHeader(authHeader);
-  } catch (err) {
-    logger.error(err);
-  }
-  if (!authObject) {
-    throw new ValidationError('Failed to parse authentication header.');
   }
 
   const challengeTexts = [];

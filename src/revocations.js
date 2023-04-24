@@ -1,7 +1,5 @@
 import { LRUCache } from 'lru-cache';
 
-import { logger } from './utils';
-
 export class AuthTimestampCache {
 
   constructor(driver, maxCacheSize) {
@@ -30,7 +28,7 @@ export class AuthTimestampCache {
 
   handleCacheEvictions() {
     if (this.currentCacheEvictions > 0) {
-      logger.warn(`Gaia authentication token timestamp cache evicted ${this.currentCacheEvictions} entries in the last 10 minutes. Consider increasing 'authTimestampCacheSize'.`);
+      console.warn(`Gaia authentication token timestamp cache evicted ${this.currentCacheEvictions} entries in the last 10 minutes. Consider increasing 'authTimestampCacheSize'.`);
       this.currentCacheEvictions = 0;
     }
   }
