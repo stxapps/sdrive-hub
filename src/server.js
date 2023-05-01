@@ -42,7 +42,7 @@ export class HubServer {
     return authObject;
   }
 
-  async handleListFiles(address, page, stat, requestHeaders) {
+  async handleListFiles(address, page, pageSize, stat, requestHeaders) {
     const oldestValidTokenTimestamp =
       await this.authTimestampCache.getAuthTimestamp(address);
     const authObject = this.validate(
@@ -54,7 +54,8 @@ export class HubServer {
 
     const listFilesArgs = {
       pathPrefix: address + '/', // to exclude ${address}-auth from revocation
-      page: page
+      page: page,
+      pageSize: pageSize,
     };
 
     let listFileResult;
@@ -214,7 +215,7 @@ export class HubServer {
     }
 
     const contentLengthHeader = requestHeaders['content-length'];
-    const contentLengthBytes = parseInt(contentLengthHeader);
+    const contentLengthBytes = parseInt(contentLengthHeader, 10);
     const isLengthFinite = Number.isFinite(contentLengthBytes) && contentLengthBytes > 0;
 
     // If a valid content-length is specified check to immediately return error

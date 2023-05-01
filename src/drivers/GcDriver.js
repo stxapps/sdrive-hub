@@ -26,7 +26,7 @@ const parseFileMetadataStat = (metadata) => {
     exists: true,
     etag: formatETagFromMD5(metadata.md5Hash),
     contentType: metadata.contentType,
-    contentLength: parseInt(metadata.size),
+    contentLength: parseInt(metadata.size, 10),
     lastModifiedDate: lastModified,
     generation: metadata.generation,
   };
@@ -74,9 +74,13 @@ class GcDriver {
   }
 
   async listAllObjects(prefix, page, pageSize) {
+    pageSize = parseInt(pageSize, 10);
+    if (!Number.isFinite(pageSize) || pageSize > this.pageSize || pageSize <= 0) {
+      pageSize = this.pageSize;
+    }
     const opts = {
       prefix: prefix,
-      maxResults: pageSize || this.pageSize,
+      maxResults: pageSize,
       pageToken: page || undefined,
     };
 

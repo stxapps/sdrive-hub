@@ -167,7 +167,7 @@ app.post(
   express.json({ limit: 4096 }),
   (req, res) => {
     // sanity check... should never be reached if the express json parser is working correctly
-    if (parseInt(req.headers['content-length']) > 4096) {
+    if (parseInt(req.headers['content-length'], 10) > 4096) {
       writeResponse(res, { message: 'Invalid JSON: too long' }, 400);
       return;
     }
@@ -175,9 +175,10 @@ app.post(
     const address = req.params[0];
     const requestBody = req.body;
     const page = requestBody.page ? requestBody.page : null;
+    const pageSize = requestBody.pageSize ? requestBody.pageSize : null;
     const stat = !!requestBody.stat;
 
-    server.handleListFiles(address, page, stat, req.headers)
+    server.handleListFiles(address, page, pageSize, stat, req.headers)
       .then((files) => {
         writeResponse(res, { entries: files.entries, page: files.page }, 202);
       })
@@ -199,7 +200,7 @@ app.post(
   express.json({ limit: 4096 }),
   (req, res) => {
     // sanity check... should never be reached if the express json parser is working correctly
-    if (parseInt(req.headers['content-length']) > 4096) {
+    if (parseInt(req.headers['content-length'], 10) > 4096) {
       writeResponse(res, { message: 'Invalid JSON: too long' }, 400);
       return;
     }
@@ -210,7 +211,7 @@ app.post(
     }
 
     const address = req.params[0];
-    const oldestValidTimestamp = parseInt(req.body.oldestValidTimestamp);
+    const oldestValidTimestamp = parseInt(req.body.oldestValidTimestamp, 10);
 
     if (!Number.isFinite(oldestValidTimestamp) || oldestValidTimestamp < 0) {
       writeResponse(res, {
