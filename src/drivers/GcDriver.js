@@ -190,7 +190,7 @@ class GcDriver {
       throw error;
     }
 
-    await this.performBackup(bucketFile);
+    await this.performBackup(bucketFile.name);
 
     const udtdStat = parseFileMetadataStat(bucketFile.metadata)
     const udtdCtl = udtdStat.contentLength;
@@ -320,7 +320,7 @@ class GcDriver {
       throw error;
     }
 
-    await this.performBackup(newBucketFile);
+    await this.performBackup(newBucketFile.name);
 
     const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
     const udtdCtl = udtdStat.contentLength;
@@ -394,13 +394,14 @@ class GcDriver {
     }
   }
 
-  async performBackup(bucketFile) {
+  async performBackup(fileName) {
     try {
+      const bucketFile = this.storage.bucket(this.bucket).file(fileName);
       const backupBucket = this.storage.bucket(this.backupBucket)
-      await bucketFile.copy(backupBucket, { private: true });
+      await bucketFile.copy(backupBucket, { predefinedAcl: 'private' });
     } catch (error) {
       // Just log. Need to manually copy directly from Storage.
-      console.error(`Error performBackup: ${bucketFile.name}`, error);
+      console.error(`Error performBackup: ${fileName}`, error);
     }
   }
 

@@ -367,7 +367,7 @@ export class HubServer {
         if (!isString(contentType)) contentType = 'text/plain';
       } else if (isObject(content)) {
         if (!isString(contentType)) contentType = 'application/json';
-        content = JSON.parse(content);
+        content = JSON.stringify(content);
       } else {
         throw new InvalidInputError(`Invalid data.content: ${content}`);
       }
