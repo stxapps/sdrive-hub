@@ -2,9 +2,14 @@ import * as stream from 'stream';
 import { promisify } from 'util';
 import { customAlphabet } from 'nanoid';
 
-const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+export const runAsyncWrapper = (callback) => {
+  return function (req, res, next) {
+    callback(req, res, next).catch(next);
+  }
+};
 
 export const generateUniqueID = () => {
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
   const nanoid = customAlphabet(alphabet, 10);
   return nanoid();
 };
@@ -54,37 +59,6 @@ export const monitorStreamProgress = (inputStream, progressCallback) => {
 
   return result;
 };
-
-export class AsyncMutexScope {
-  constructor() {
-    this._opened = new Set();
-  }
-
-  openedCount() {
-    return this._opened.size;
-  }
-
-  tryAcquire(id, spawnOwner) {
-    if (this._opened.has(id)) {
-      return false;
-    }
-
-    this._opened.add(id);
-
-    try {
-      const owner = spawnOwner();
-
-      owner.finally(() => {
-        this._opened.delete(id)
-      });
-    } catch (error) {
-      this._opened.delete(id);
-      throw error;
-    }
-
-    return true;
-  }
-}
 
 export const sample = (arr) => {
   return arr[Math.floor(Math.random() * arr.length)];

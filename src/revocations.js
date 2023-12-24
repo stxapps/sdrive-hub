@@ -34,7 +34,7 @@ export class AuthTimestampCache {
   }
 
   async getAuthTimestamp(bucketAddress) {
-    // First perform fast check if auth number exists in cache..
+    // First perform fast check if auth number exists in cache.
     let authTimestamp = this.cache.get(bucketAddress);
     if (authTimestamp) {
       return authTimestamp;

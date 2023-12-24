@@ -1,10 +1,13 @@
 import { validateAuthorizationHeader } from './authentication';
 import {
   ValidationError, DoesNotExist, PayloadTooLargeError, PreconditionFailedError,
+  InvalidInputError,
 } from './errors';
 import { AuthTimestampCache } from './revocations';
+import { PUT_FILE, DELETE_FILE } from './const';
 import {
-  generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress,
+  generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress, isString,
+  isObject,
 } from './utils';
 
 export class HubServer {
@@ -150,24 +153,23 @@ export class HubServer {
     }
 
     if (isArchivalRestricted) {
-      // if archival restricted then just rename the canonical file to the historical file
+      // if archival restricted then just rename the canonical file
+      //   to the historical file.
       const historicalPath = this.getHistoricalFileName(path);
-      const renameCommand = {
+      await this.driver.performRename({
         path: path,
         storageTopLevel: address,
         newPath: historicalPath,
         ifMatchTag: ifMatchTag,
         assoIssAddress: authObject.assoIssAddress,
-      };
-      await this.driver.performRename(renameCommand);
+      });
     } else {
-      const deleteCommand = {
+      await this.driver.performDelete({
         storageTopLevel: address,
         path,
         ifMatchTag: ifMatchTag,
         assoIssAddress: authObject.assoIssAddress,
-      };
-      await this.driver.performDelete(deleteCommand);
+      });
     }
   }
 
@@ -250,7 +252,7 @@ export class HubServer {
       }
     }
 
-    // Use the client reported content-length if available, otheriwse fallback to the
+    // Use the client reported content-length if available, otherwise fallback to the
     // max configured length.
     const maxContentLength = (
       Number.isFinite(contentLengthBytes) && contentLengthBytes > 0
@@ -282,27 +284,18 @@ export class HubServer {
     const writeCommand = {
       storageTopLevel: address,
       path,
-      stream: monitoredStream,
+      content: monitoredStream,
       contentType,
       contentLength: contentLengthBytes,
       ifMatchTag: ifMatchTag,
       ifNoneMatchTag: ifNoneMatchTag,
       assoIssAddress: authObject.assoIssAddress,
     };
-    const [writeResponse] = await Promise.all([
+    let [writeResponse] = await Promise.all([
       this.driver.performWrite(writeCommand), pipelinePromise,
     ]);
+    writeResponse = this.fixWriteResponse(writeResponse)
 
-    const readURL = writeResponse.publicURL;
-    const driverPrefix = this.driver.getReadURLPrefix();
-    const readURLPrefix = this.getReadURLPrefix();
-    if (readURLPrefix !== driverPrefix && readURL.startsWith(driverPrefix)) {
-      const postFix = readURL.slice(driverPrefix.length);
-      return {
-        publicURL: `${readURLPrefix}${postFix}`,
-        etag: writeResponse.etag,
-      };
-    }
     return writeResponse;
   }
 
@@ -330,5 +323,201 @@ export class HubServer {
       }
     }
     return isArchivalRestricted;
+  }
+
+  fixWriteResponse(writeResponse) {
+    const readURL = writeResponse.publicURL;
+    const driverPrefix = this.driver.getReadURLPrefix();
+    const readURLPrefix = this.getReadURLPrefix();
+    if (readURLPrefix !== driverPrefix && readURL.startsWith(driverPrefix)) {
+      const postFix = readURL.slice(driverPrefix.length);
+      const fixedWriteResponse = {
+        ...writeResponse, publicURL: `${readURLPrefix}${postFix}`,
+      };
+      return fixedWriteResponse;
+    }
+
+    return writeResponse;
+  }
+
+  async _handlePerformFile(address, assoIssAddress, scopes, data) {
+    const { id, type, path } = data;
+
+    const isArchivalRestricted = this.checkArchivalRestrictions(address, path, scopes);
+
+    if (type === PUT_FILE) {
+      if (scopes.writePrefixes.length > 0 || scopes.writePaths.length > 0) {
+        // we're limited to a set of prefixes and paths.
+        // does the given path match any prefixes?
+        let match = !!scopes.writePrefixes.find((p) => (path.startsWith(p)));
+
+        if (!match) {
+          // check for exact paths
+          match = !!scopes.writePaths.find((p) => (path === p));
+        }
+
+        if (!match) {
+          // not authorized to write to this path
+          throw new ValidationError(`Address ${address} not authorized to write to ${path} by scopes`);
+        }
+      }
+
+      let { contentType, content } = data;
+      if (isString(content)) {
+        if (!isString(contentType)) contentType = 'text/plain';
+      } else if (isObject(content)) {
+        if (!isString(contentType)) contentType = 'application/json';
+        content = JSON.parse(content);
+      } else {
+        throw new InvalidInputError(`Invalid data.content: ${content}`);
+      }
+
+      const contentLengthBytes = Buffer.byteLength(content, 'utf8');
+      if (contentLengthBytes > this.maxFileUploadSizeBytes) {
+        const errMsg = (
+          `Max file upload size is ${this.maxFileUploadSizeMB} megabytes. ` +
+          `Rejected data.content of ${bytesToMegabytes(contentLengthBytes, 4)} megabytes`
+        );
+        throw new PayloadTooLargeError(errMsg);
+      }
+
+      if (isArchivalRestricted) {
+        const historicalPath = this.getHistoricalFileName(path);
+        try {
+          await this.driver.performRename({
+            path: path,
+            storageTopLevel: address,
+            newPath: historicalPath,
+            ifMatchTag: null,
+            assoIssAddress: assoIssAddress,
+          });
+        } catch (error) {
+          if (error instanceof DoesNotExist) {
+            console.debug(
+              '404 on putFileArchival rename attempt -- usually this is okay and ' +
+              'only indicates that this is the first time the file was written: ' +
+              `${address}/${path}`
+            );
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      const writeCommand = {
+        storageTopLevel: address,
+        path,
+        content,
+        contentType,
+        contentLength: contentLengthBytes,
+        ifMatchTag: null,
+        ifNoneMatchTag: null,
+        assoIssAddress: assoIssAddress,
+      };
+      let writeResponse = await this.driver.performWrite(writeCommand);
+      writeResponse = this.fixWriteResponse(writeResponse);
+
+      return { ...writeResponse, success: true, id };
+    }
+
+    if (type === DELETE_FILE) {
+      if (scopes.deletePrefixes.length > 0 || scopes.deletePaths.length > 0) {
+        // we're limited to a set of prefixes and paths.
+        // does the given path match any prefixes?
+        let match = !!scopes.deletePrefixes.find((p) => (path.startsWith(p)));
+
+        if (!match) {
+          // check for exact paths
+          match = !!scopes.deletePaths.find((p) => (path === p));
+        }
+
+        if (!match) {
+          // not authorized to write to this path
+          throw new ValidationError(`Address ${address} not authorized to delete from ${path} by scopes`);
+        }
+      }
+
+      if (isArchivalRestricted) {
+        // if archival restricted then just rename the canonical file
+        //   to the historical file.
+        const historicalPath = this.getHistoricalFileName(path);
+        await this.driver.performRename({
+          path: path,
+          storageTopLevel: address,
+          newPath: historicalPath,
+          ifMatchTag: null,
+          assoIssAddress: assoIssAddress,
+        });
+      } else {
+        await this.driver.performDelete({
+          storageTopLevel: address,
+          path,
+          ifMatchTag: null,
+          assoIssAddress: assoIssAddress,
+        });
+      }
+
+      return { success: true, id };
+    }
+
+    throw new InvalidInputError(`Invalid data.type: ${data.type}`);
+  }
+
+  async _handlePerformFiles(address, assoIssAddress, scopes, data) {
+    const results = [];
+
+    if (Array.isArray(data.values) && [true, false].includes(data.isSequential)) {
+      if (data.isSequential) {
+        for (const value of data.values) {
+          const pResults = await this._handlePerformFiles(
+            address, assoIssAddress, scopes, value
+          );
+          results.push(...pResults);
+          if (pResults.some(result => !result.success)) break;
+        }
+      } else {
+        const nItems = 10;
+        for (let i = 0; i < data.values.length; i += nItems) {
+          const selectedValues = data.values.slice(i, i + nItems);
+          const aResults = await Promise.all(selectedValues.map(value => {
+            return this._handlePerformFiles(
+              address, assoIssAddress, scopes, value
+            );
+          }));
+          for (const pResults of aResults) {
+            results.push(...pResults);
+          }
+        }
+      }
+    } else if (isString(data.id) && isString(data.type) && isString(data.path)) {
+      try {
+        const result = await this._handlePerformFile(
+          address, assoIssAddress, scopes, data
+        );
+        results.push(result);
+      } catch (error) {
+        results.push({
+          error: error.toString().slice(0, 999), success: false, id: data.id,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  async handlePerformFiles(address, requestBody, requestHeaders) {
+    const oldestValidTokenTimestamp =
+      await this.authTimestampCache.getAuthTimestamp(address);
+    const authObject = this.validate(
+      address, requestHeaders, oldestValidTokenTimestamp
+    );
+
+    const scopes = authObject.parseAuthScopes();
+    const assoIssAddress = authObject.assoIssAddress;
+
+    const response = await this._handlePerformFiles(
+      address, assoIssAddress, scopes, requestBody
+    );
+    return response;
   }
 }

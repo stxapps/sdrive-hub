@@ -5,6 +5,7 @@ const config = {
   //'validHubUrls': ['http://localhost:8088'],
   'driver': 'google-cloud',
   'bucket': 'sdrive-001.appspot.com',
+  'backupBucket': 'sdrive-hub-backup',
   /*'gcCredentials': {
     'keyFilename': 'YOUR_KEY_FILE_PATH'
   },*/
@@ -12,7 +13,7 @@ const config = {
   /*'proofsConfig': {
     'proofsRequired': 0
   },*/
-  'pageSize': 1000,
+  'pageSize': 2400,
   'cacheControl': 'public, max-age=1',
   'maxFileUploadSize': 20,
   'authTimestampCacheSize': 800,

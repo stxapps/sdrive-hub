@@ -4,9 +4,9 @@ import cors from 'cors';
 import { getChallengeText, LATEST_AUTH_VERSION } from './authentication';
 import { HubServer } from './server';
 import GcDriver from './drivers/GcDriver'
-import { AsyncMutexScope } from './utils';
 import * as errors from './errors';
 import config from './config';
+import { runAsyncWrapper } from './utils';
 
 const getDriverClass = (driver) => {
   if (driver === 'google-cloud') {
@@ -21,8 +21,6 @@ const writeResponse = (res, data, statusCode) => {
   res.write(JSON.stringify(data));
   res.end();
 };
-
-const asyncMutex = new AsyncMutexScope();
 
 let driver;
 if (config.driverInstance) {
@@ -44,8 +42,8 @@ const server = new HubServer(driver, config);
 
 const corsConfig = cors({
   origin: '*',
-  // Set the Access-Control-Max-Age header to 24 hours.
-  maxAge: 86400,
+  // Set the Access-Control-Max-Age header to 365 days.
+  maxAge: 60 * 60 * 24 * 365,
   methods: 'DELETE,POST,GET,OPTIONS,HEAD',
   // Allow the client to include match headers in http requests
   // https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Headers
@@ -57,22 +55,92 @@ app.use(corsConfig);
 
 // Enabling CORS Pre-Flight
 // https://www.npmjs.com/package/cors#enabling-cors-pre-flight
-app.options('*', corsConfig);
+// When using this middleware as an application level middleware,
+//   pre-flight requests are already handled for all routes.
+//app.options('*', corsConfig);
 
 // sadly, express doesn't like to capture slashes.
 //  but that's okay! regexes solve that problem
-app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
+app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
   let filename = req.params[1];
   if (filename.endsWith('/')) {
     filename = filename.substring(0, filename.length - 1);
   }
   const address = req.params[0];
-  const endpoint = `${address}/${filename}`;
 
-  const handleRequest = async () => {
+  try {
+    const responseData = await server.handleRequest(
+      address, filename, req.headers, req
+    );
+    writeResponse(res, responseData, 202);
+  } catch (err) {
+    if (err instanceof errors.ValidationError) {
+      writeResponse(res, { message: err.message, error: err.name }, 401);
+    } else if (err instanceof errors.AuthTokenTimestampValidationError) {
+      writeResponse(res, { message: err.message, error: err.name }, 401);
+    } else if (err instanceof errors.BadPathError) {
+      writeResponse(res, { message: err.message, error: err.name }, 403);
+    } else if (err instanceof errors.NotEnoughProofError) {
+      writeResponse(res, { message: err.message, error: err.name }, 402);
+    } else if (err instanceof errors.ConflictError) {
+      writeResponse(res, { message: err.message, error: err.name }, 409);
+    } else if (err instanceof errors.PayloadTooLargeError) {
+      writeResponse(res, { message: err.message, error: err.name }, 413);
+    } else if (err instanceof errors.PreconditionFailedError) {
+      writeResponse(
+        res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
+      );
+    } else {
+      console.error(err);
+      writeResponse(res, { message: 'Server Error' }, 500);
+    }
+  }
+}));
+
+app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
+  let filename = req.params[1];
+  if (filename.endsWith('/')) {
+    filename = filename.substring(0, filename.length - 1);
+  }
+  const address = req.params[0];
+
+  try {
+    await server.handleDelete(address, filename, req.headers);
+    res.writeHead(202);
+    res.end();
+  } catch (err) {
+    if (err instanceof errors.ValidationError) {
+      writeResponse(res, { message: err.message, error: err.name }, 401);
+    } else if (err instanceof errors.AuthTokenTimestampValidationError) {
+      writeResponse(res, { message: err.message, error: err.name }, 401);
+    } else if (err instanceof errors.BadPathError) {
+      writeResponse(res, { message: err.message, error: err.name }, 403);
+    } else if (err instanceof errors.DoesNotExist) {
+      writeResponse(res, { message: err.message, error: err.name }, 404);
+    } else if (err instanceof errors.NotEnoughProofError) {
+      writeResponse(res, { message: err.message, error: err.name }, 402);
+    } else if (err instanceof errors.PreconditionFailedError) {
+      writeResponse(
+        res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
+      );
+    } else {
+      console.error(err);
+      writeResponse(res, { message: 'Server Error' }, 500);
+    }
+  }
+}));
+
+app.post(
+  /^\/perform-files\/([a-zA-Z0-9]+)\/?/,
+  express.json({ limit: server.maxFileUploadSizeBytes }),
+  runAsyncWrapper(async (req, res) => {
+
+    const address = req.params[0];
+    const requestBody = req.body;
+
     try {
-      const responseData = await server.handleRequest(
-        address, filename, req.headers, req
+      const responseData = await server.handlePerformFiles(
+        address, requestBody, req.headers
       );
       writeResponse(res, responseData, 202);
     } catch (err) {
@@ -80,97 +148,18 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.AuthTokenTimestampValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
-      } else if (err instanceof errors.BadPathError) {
-        writeResponse(res, { message: err.message, error: err.name }, 403);
-      } else if (err instanceof errors.NotEnoughProofError) {
-        writeResponse(res, { message: err.message, error: err.name }, 402);
-      } else if (err instanceof errors.ConflictError) {
-        writeResponse(res, { message: err.message, error: err.name }, 409);
-      } else if (err instanceof errors.PayloadTooLargeError) {
-        writeResponse(res, { message: err.message, error: err.name }, 413);
-      } else if (err instanceof errors.PreconditionFailedError) {
-        writeResponse(
-          res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
-        );
       } else {
         console.error(err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
-  }
-
-  try {
-    if (!asyncMutex.tryAcquire(endpoint, handleRequest)) {
-      const errMsg = `Concurrent operation (store) attempted on ${endpoint}`;
-      writeResponse(res, {
-        message: errMsg,
-        error: errors.ConflictError.name,
-      }, 409);
-    }
-  } catch (err) {
-    console.error(err);
-    writeResponse(res, { message: 'Server Error' }, 500);
-  }
-});
-
-app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, (req, res) => {
-  let filename = req.params[1];
-  if (filename.endsWith('/')) {
-    filename = filename.substring(0, filename.length - 1);
-  }
-  const address = req.params[0];
-  const endpoint = `${address}/${filename}`;
-
-  const handleRequest = async () => {
-    try {
-      await server.handleDelete(address, filename, req.headers);
-      res.writeHead(202);
-      res.end();
-    } catch (err) {
-      if (err instanceof errors.ValidationError) {
-        writeResponse(res, { message: err.message, error: err.name }, 401);
-      } else if (err instanceof errors.AuthTokenTimestampValidationError) {
-        writeResponse(res, { message: err.message, error: err.name }, 401);
-      } else if (err instanceof errors.BadPathError) {
-        writeResponse(res, { message: err.message, error: err.name }, 403);
-      } else if (err instanceof errors.DoesNotExist) {
-        writeResponse(res, { message: err.message, error: err.name }, 404);
-      } else if (err instanceof errors.NotEnoughProofError) {
-        writeResponse(res, { message: err.message, error: err.name }, 402);
-      } else if (err instanceof errors.PreconditionFailedError) {
-        writeResponse(
-          res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
-        );
-      } else {
-        console.error(err);
-        writeResponse(res, { message: 'Server Error' }, 500);
-      }
-    }
-  }
-
-  try {
-    if (!asyncMutex.tryAcquire(endpoint, handleRequest)) {
-      const errMsg = `Concurrent operation (delete) attempted on ${endpoint}`;
-      writeResponse(res, {
-        message: errMsg,
-        error: errors.ConflictError.name,
-      }, 409);
-    }
-  } catch (err) {
-    console.error(err);
-    writeResponse(res, { message: 'Server Error' }, 500);
-  }
-});
+  })
+);
 
 app.post(
   /^\/list-files\/([a-zA-Z0-9]+)\/?/,
   express.json({ limit: 4096 }),
-  (req, res) => {
-    // sanity check... should never be reached if the express json parser is working correctly
-    if (parseInt(req.headers['content-length'], 10) > 4096) {
-      writeResponse(res, { message: 'Invalid JSON: too long' }, 400);
-      return;
-    }
+  runAsyncWrapper(async (req, res) => {
 
     const address = req.params[0];
     const requestBody = req.body;
@@ -178,32 +167,28 @@ app.post(
     const pageSize = requestBody.pageSize ? requestBody.pageSize : null;
     const stat = !!requestBody.stat;
 
-    server.handleListFiles(address, page, pageSize, stat, req.headers)
-      .then((files) => {
-        writeResponse(res, { entries: files.entries, page: files.page }, 202);
-      })
-      .catch((err) => {
-        if (err instanceof errors.ValidationError) {
-          writeResponse(res, { message: err.message, error: err.name }, 401);
-        } else if (err instanceof errors.AuthTokenTimestampValidationError) {
-          writeResponse(res, { message: err.message, error: err.name }, 401);
-        } else {
-          console.error(err);
-          writeResponse(res, { message: 'Server Error' }, 500);
-        }
-      });
-  }
+    try {
+      const files = await server.handleListFiles(
+        address, page, pageSize, stat, req.headers
+      );
+      writeResponse(res, { entries: files.entries, page: files.page }, 202);
+    } catch (err) {
+      if (err instanceof errors.ValidationError) {
+        writeResponse(res, { message: err.message, error: err.name }, 401);
+      } else if (err instanceof errors.AuthTokenTimestampValidationError) {
+        writeResponse(res, { message: err.message, error: err.name }, 401);
+      } else {
+        console.error(err);
+        writeResponse(res, { message: 'Server Error' }, 500);
+      }
+    }
+  })
 );
 
 app.post(
   /^\/revoke-all\/([a-zA-Z0-9]+)\/?/,
   express.json({ limit: 4096 }),
-  (req, res) => {
-    // sanity check... should never be reached if the express json parser is working correctly
-    if (parseInt(req.headers['content-length'], 10) > 4096) {
-      writeResponse(res, { message: 'Invalid JSON: too long' }, 400);
-      return;
-    }
+  runAsyncWrapper(async (req, res) => {
 
     if (!req.body || !req.body.oldestValidTimestamp) {
       writeResponse(res, { message: 'Invalid JSON: missing oldestValidTimestamp' }, 400);
@@ -220,21 +205,20 @@ app.post(
       return;
     }
 
-    server.handleAuthBump(address, oldestValidTimestamp, req.headers)
-      .then(() => {
-        writeResponse(res, { status: 'success' }, 202);
-      })
-      .catch((err) => {
-        if (err instanceof errors.ValidationError) {
-          writeResponse(res, { message: err.message, error: err.name }, 401);
-        } else if (err instanceof errors.BadPathError) {
-          writeResponse(res, { message: err.message, error: err.name }, 403);
-        } else {
-          console.error(err);
-          writeResponse(res, { message: 'Server Error' }, 500);
-        }
-      });
-  }
+    try {
+      await server.handleAuthBump(address, oldestValidTimestamp, req.headers);
+      writeResponse(res, { status: 'success' }, 202);
+    } catch (err) {
+      if (err instanceof errors.ValidationError) {
+        writeResponse(res, { message: err.message, error: err.name }, 401);
+      } else if (err instanceof errors.BadPathError) {
+        writeResponse(res, { message: err.message, error: err.name }, 403);
+      } else {
+        console.error(err);
+        writeResponse(res, { message: 'Server Error' }, 500);
+      }
+    }
+  })
 );
 
 app.get('/', (_req, res) => {

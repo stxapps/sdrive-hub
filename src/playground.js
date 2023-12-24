@@ -50,6 +50,11 @@ const makeAuthToken = (
 };
 
 const playAuthToken = async () => {
+
+  const salt = crypto.randomBytes(16).toString('hex');
+  console.log(salt);
+  return;
+
   const dataPrivateKey = '';
   const appPrivateKey = '';
   if (dataPrivateKey.length !== 64 || appPrivateKey.length !== 64) {
@@ -72,7 +77,7 @@ const playAuthToken = async () => {
   );
   console.log('authToken', authToken);
 };
-playAuthToken();
+//playAuthToken();
 
 const play0 = async () => {
   const storage = new Storage();
@@ -110,3 +115,12 @@ const play1 = async () => {
   console.log(what);*/
 };
 //play1();
+
+const play2 = async () => {
+  const res = await fetch(
+    "https://api.hiro.so/v1/addresses/stacks/SP1V7W5N0Y9KKY3QG73GQH0NZWJ65VBNJY93HKATD"
+  );
+  const result = await res.json();
+  console.log(result);
+};
+play2();

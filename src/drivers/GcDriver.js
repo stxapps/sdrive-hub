@@ -1,13 +1,13 @@
 import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
 
-import { FILE_LOG, REVOCATION } from '../const';
+import {
+  FILE_LOG, REVOCATION, PUT_FILE, DELETE_FILE, MOVE_FILE_PUT_STEP, MOVE_FILE_DEL_STEP,
+} from '../const';
 import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
 } from '../errors';
-import {
-  pipelineAsync, dateToUnixTimeSeconds, sample, isObject, isNumber, sleep,
-} from '../utils';
+import { dateToUnixTimeSeconds, sample, isObject, isNumber, sleep } from '../utils';
 
 const isPathValid = (path) => {
   // for now, only disallow double dots.
@@ -39,6 +39,7 @@ class GcDriver {
     this.datastore = new Datastore();
     this.storage = new Storage();
     this.bucket = config.bucket;
+    this.backupBucket = config.backupBucket;
     this.pageSize = config.pageSize ? config.pageSize : 100;
     this.cacheControl = config.cacheControl;
     this.initPromise = this.createIfNeeded();
@@ -147,13 +148,11 @@ class GcDriver {
     }
 
     const filename = `${args.storageTopLevel}/${args.path}`;
-    let bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename);
+    let bucketFile = this.storage.bucket(this.bucket).file(filename);
 
     let etag = null, generation = 0, contentLength = 0;
 
-    const stat = await this._performStat(filename, bucketFile);
+    const stat = await this._performStat(bucketFile);
     if (stat.exists) {
       const { etag: etg, generation: gnt, contentLength: ctl } = stat;
       [etag, generation, contentLength] = [etg, gnt, ctl];
@@ -166,9 +165,7 @@ class GcDriver {
       }
     }
 
-    bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename, { generation });
+    bucketFile = this.storage.bucket(this.bucket).file(filename, { generation });
 
     /* There is some overhead when using a resumable upload that can cause
        noticeable performance degradation while uploading a series of small
@@ -180,14 +177,11 @@ class GcDriver {
     if (this.cacheControl) {
       metadata.cacheControl = this.cacheControl;
     }
-    const fileWriteStream = bucketFile.createWriteStream({
-      public: true,
-      resumable: this.resumable,
-      metadata,
-    });
 
     try {
-      await pipelineAsync(args.stream, fileWriteStream);
+      await bucketFile.save(
+        args.content, { public: true, resumable: this.resumable, metadata }
+      );
     } catch (error) {
       if (error.code === 412) {
         throw new PreconditionFailedError(`The provided generation: ${generation} does not match the resource on the server`);
@@ -196,13 +190,17 @@ class GcDriver {
       throw error;
     }
 
-    const updatedStat = parseFileMetadataStat(bucketFile.metadata)
+    await this.performBackup(bucketFile);
 
-    const sizeChange = updatedStat.contentLength - contentLength;
-    await this.saveFileLog(args.storageTopLevel, args.assoIssAddress, sizeChange);
+    const udtdStat = parseFileMetadataStat(bucketFile.metadata)
+    const udtdCtl = udtdStat.contentLength;
+    const sizeChange = udtdCtl - contentLength;
+    await this.saveFileLog(
+      bucketFile.name, args.assoIssAddress, PUT_FILE, udtdCtl, sizeChange
+    );
 
     return {
-      publicURL: `${this.getReadURLPrefix()}${filename}`, etag: updatedStat.etag,
+      publicURL: `${this.getReadURLPrefix()}${bucketFile.name}`, etag: udtdStat.etag,
     };
   }
 
@@ -212,11 +210,9 @@ class GcDriver {
     }
 
     const filename = `${args.storageTopLevel}/${args.path}`;
-    const bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename);
+    const bucketFile = this.storage.bucket(this.bucket).file(filename);
 
-    const stat = await this._performStat(filename, bucketFile);
+    const stat = await this._performStat(bucketFile);
     if (!stat.exists) throw new DoesNotExist('File does not exist');
 
     const { etag, generation, contentLength } = stat;
@@ -236,7 +232,7 @@ class GcDriver {
     }
 
     await this.saveFileLog(
-      args.storageTopLevel, args.assoIssAddress, -1 * contentLength
+      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
     );
   }
 
@@ -244,19 +240,15 @@ class GcDriver {
     if (!isPathValid(args.path)) {
       throw new BadPathError('Invalid Path');
     }
+
     const filename = `${args.storageTopLevel}/${args.path}`;
-    const bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename);
+    const bucketFile = this.storage.bucket(this.bucket).file(filename);
+
     try {
       const [getResult] = await bucketFile.get({ autoCreate: false });
       const statResult = parseFileMetadataStat(getResult.metadata);
       const dataStream = getResult.createReadStream();
-      const result = {
-        ...statResult,
-        exists: true,
-        data: dataStream
-      };
+      const result = { ...statResult, exists: true, data: dataStream };
       return result;
     } catch (error) {
       if (error.code === 404) {
@@ -267,16 +259,14 @@ class GcDriver {
     }
   }
 
-  async _performStat(filename, bucketFile) {
+  async _performStat(bucketFile) {
     try {
       const [metadataResult] = await bucketFile.getMetadata();
       const result = parseFileMetadataStat(metadataResult);
       return result;
     } catch (error) {
       if (error.code === 404) {
-        const result = {
-          exists: false,
-        };
+        const result = { exists: false };
         return result;
       }
 
@@ -289,11 +279,9 @@ class GcDriver {
       throw new BadPathError('Invalid Path');
     }
     const filename = `${args.storageTopLevel}/${args.path}`;
-    const bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename);
+    const bucketFile = this.storage.bucket(this.bucket).file(filename);
 
-    const result = await this._performStat(filename, bucketFile);
+    const result = await this._performStat(bucketFile);
     return result;
   }
 
@@ -306,24 +294,18 @@ class GcDriver {
     }
 
     const filename = `${args.storageTopLevel}/${args.path}`;
-    let bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename);
+    let bucketFile = this.storage.bucket(this.bucket).file(filename);
 
-    const stat = await this._performStat(filename, bucketFile);
+    const stat = await this._performStat(bucketFile);
     if (!stat.exists) throw new DoesNotExist('File does not exist');
 
-    const { etag, generation } = stat;
+    const { etag, generation, contentLength } = stat;
     this.validateMatchTag(args.ifMatchTag, etag);
 
-    bucketFile = this.storage
-      .bucket(this.bucket)
-      .file(filename, { generation });
+    bucketFile = this.storage.bucket(this.bucket).file(filename, { generation });
 
     const newFilename = `${args.storageTopLevel}/${args.newPath}`;
-    const newBucketFile = this.storage
-      .bucket(this.bucket)
-      .file(newFilename);
+    const newBucketFile = this.storage.bucket(this.bucket).file(newFilename);
 
     try {
       await bucketFile.move(newBucketFile);
@@ -338,7 +320,16 @@ class GcDriver {
       throw error;
     }
 
-    await this.saveFileLog(args.storageTopLevel, args.assoIssAddress, 0);
+    await this.performBackup(newBucketFile);
+
+    const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
+    const udtdCtl = udtdStat.contentLength;
+    await this.saveFileLog(
+      bucketFile.name, args.assoIssAddress, MOVE_FILE_DEL_STEP, 0, -1 * contentLength
+    );
+    await this.saveFileLog(
+      newBucketFile.name, args.assoIssAddress, MOVE_FILE_PUT_STEP, udtdCtl, udtdCtl
+    );
   }
 
   async performWriteAuthTimestamp(args) {
@@ -403,18 +394,31 @@ class GcDriver {
     }
   }
 
-  async saveFileLog(bucketAddress, assoIssAddress, sizeChange) {
+  async performBackup(bucketFile) {
+    try {
+      const backupBucket = this.storage.bucket(this.backupBucket)
+      await bucketFile.copy(backupBucket, { private: true });
+    } catch (error) {
+      // Just log. Need to manually copy directly from Storage.
+      console.error(`Error performBackup: ${bucketFile.name}`, error);
+    }
+  }
+
+  async saveFileLog(path, assoIssAddress, action, size, sizeChange) {
     const logData = [
-      { name: 'bucketAddress', value: bucketAddress },
-      { name: 'assoIssAddress', value: assoIssAddress },
+      { name: 'path', value: path, excludeFromIndexes: true },
+      { name: 'assoIssAddress', value: assoIssAddress, excludeFromIndexes: true },
+      { name: 'action', value: action, excludeFromIndexes: true },
+      { name: 'size', value: size, excludeFromIndexes: true },
       { name: 'sizeChange', value: sizeChange, excludeFromIndexes: true },
       { name: 'createDate', value: new Date() },
     ];
+
     try {
       await this.datastore.save({ key: this.datastore.key([FILE_LOG]), data: logData });
     } catch (error) {
-      // Just log. Bucket size will be wrong but need to recal direclty from Storage.
-      console.error(error);
+      // Just log. Bucket size will be wrong, need to recal direclty from Storage.
+      console.error(`Error saveFileLog: ${path}`, error);
     }
   }
 }
