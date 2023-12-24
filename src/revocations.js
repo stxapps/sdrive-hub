@@ -27,10 +27,10 @@ export class AuthTimestampCache {
   }
 
   handleCacheEvictions() {
-    if (this.currentCacheEvictions > 0) {
+    if (this.currentCacheEvictions > this.cache.max) {
       console.warn(`Gaia authentication token timestamp cache evicted ${this.currentCacheEvictions} entries in the last 10 minutes. Consider increasing 'authTimestampCacheSize'.`);
-      this.currentCacheEvictions = 0;
     }
+    this.currentCacheEvictions = 0;
   }
 
   async getAuthTimestamp(bucketAddress) {
