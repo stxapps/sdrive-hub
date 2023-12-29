@@ -4,6 +4,7 @@ import {
   InvalidInputError,
 } from './errors';
 import { AuthTimestampCache } from './revocations';
+import { BlacklistCache } from './blacklist';
 import { PUT_FILE, DELETE_FILE } from './const';
 import {
   generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress, isString,
@@ -22,6 +23,9 @@ export class HubServer {
     this.requireCorrectHubUrl = config.requireCorrectHubUrl || false;
     this.authTimestampCache = new AuthTimestampCache(
       driver, config.authTimestampCacheSize
+    );
+    this.blacklistCache = new BlacklistCache(
+      driver, config.blacklistCacheSize
     );
     this.maxFileUploadSizeMB = (config.maxFileUploadSize || 20);
     this.maxFileUploadSizeBytes = megabytesToBytes(this.maxFileUploadSizeMB);
@@ -179,6 +183,12 @@ export class HubServer {
     const authObject = this.validate(
       address, requestHeaders, oldestValidTokenTimestamp
     );
+
+    const isBlacklisted =
+      await this.blacklistCache.isBlacklisted(address, authObject.assoIssAddress);
+    if (isBlacklisted) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
 
     // can the caller write? if so, in what paths?
     const scopes = authObject.parseAuthScopes();
@@ -512,11 +522,16 @@ export class HubServer {
       address, requestHeaders, oldestValidTokenTimestamp
     );
 
+    const isBlacklisted =
+      await this.blacklistCache.isBlacklisted(address, authObject.assoIssAddress);
+    if (isBlacklisted) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
+
     const scopes = authObject.parseAuthScopes();
-    const assoIssAddress = authObject.assoIssAddress;
 
     const response = await this._handlePerformFiles(
-      address, assoIssAddress, scopes, requestBody
+      address, authObject.assoIssAddress, scopes, requestBody
     );
     return response;
   }

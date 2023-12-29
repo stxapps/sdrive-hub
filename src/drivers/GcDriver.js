@@ -2,7 +2,8 @@ import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
 
 import {
-  FILE_LOG, REVOCATION, PUT_FILE, DELETE_FILE, MOVE_FILE_PUT_STEP, MOVE_FILE_DEL_STEP,
+  FILE_LOG, REVOCATION, BLACKLIST, PUT_FILE, DELETE_FILE, MOVE_FILE_PUT_STEP,
+  MOVE_FILE_DEL_STEP,
 } from '../const';
 import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
@@ -384,6 +385,16 @@ class GcDriver {
     }
 
     return timestamp;
+  }
+
+  async performCheckBlacklisted(args) {
+    const { keyName } = args;
+
+    const key = this.datastore.key([BLACKLIST, keyName]);
+    const [entity] = await this.datastore.get(key);
+
+    if (isObject(entity)) return true;
+    return false;
   }
 
   validateMatchTag(ifMatchTag, currentETag) {
