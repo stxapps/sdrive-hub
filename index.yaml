@@ -1,0 +1,6 @@
+indexes:
+
+- kind: FileInfo
+  properties:
+  - name: status
+  - name: updateDate

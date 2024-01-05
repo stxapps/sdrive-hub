@@ -10,6 +10,8 @@
     "start": "node --import=specifier-resolution-node/register src/index.js",
     "start-local": "GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/legacy_credentials/brace@brace.to/sdrive-001-adeb2f2dcdc2.json nodemon --import=specifier-resolution-node/register src/index.js",
     "deploy": "gcloud app deploy --no-promote --project=sdrive-001",
+    "create-datastore-indexes": "gcloud datastore indexes create index.yaml --project=sdrive-001",
+    "cleanup-datastore-indexes": "gcloud datastore indexes cleanup index.yaml --project=sdrive-001",
     "setup-cors": "GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/legacy_credentials/brace@brace.to/sdrive-001-adeb2f2dcdc2.json node --import=specifier-resolution-node/register src/setup-cors.js",
     "play": "GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/legacy_credentials/brace@brace.to/sdrive-001-adeb2f2dcdc2.json node --import=specifier-resolution-node/register src/playground.js"
   },
