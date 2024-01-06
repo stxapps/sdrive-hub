@@ -6,7 +6,7 @@ import { HubServer } from './server';
 import GcDriver from './drivers/GcDriver'
 import * as errors from './errors';
 import config from './config';
-import { runAsyncWrapper } from './utils';
+import { runAsyncWrapper, randomString } from './utils';
 
 const getDriverClass = (driver) => {
   if (driver === 'google-cloud') {
@@ -62,18 +62,25 @@ app.use(corsConfig);
 // sadly, express doesn't like to capture slashes.
 //  but that's okay! regexes solve that problem
 app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
+  const logKey = randomString(12);
+  console.log(`(${logKey}) /store receives a post request`);
+
   let filename = req.params[1];
   if (filename.endsWith('/')) {
     filename = filename.substring(0, filename.length - 1);
   }
   const address = req.params[0];
+  console.log(`(${logKey}) address: ${address}`);
+  console.log(`(${logKey}) filename: ${filename}`);
 
   try {
     const responseData = await server.handleRequest(
       address, filename, req.headers, req
     );
+    console.log(`(${logKey}) /store finished`);
     writeResponse(res, responseData, 202);
   } catch (err) {
+    console.log(`(${logKey}) ${err.toString()}, return error`);
     if (err instanceof errors.ValidationError) {
       writeResponse(res, { message: err.message, error: err.name }, 401);
     } else if (err instanceof errors.AuthTokenTimestampValidationError) {
@@ -91,24 +98,31 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
         res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
       );
     } else {
-      console.error(err);
+      console.error(`(${logKey}) Server error`, err);
       writeResponse(res, { message: 'Server Error' }, 500);
     }
   }
 }));
 
 app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
+  const logKey = randomString(12);
+  console.log(`(${logKey}) /delete receives a delete request`);
+
   let filename = req.params[1];
   if (filename.endsWith('/')) {
     filename = filename.substring(0, filename.length - 1);
   }
   const address = req.params[0];
+  console.log(`(${logKey}) address: ${address}`);
+  console.log(`(${logKey}) filename: ${filename}`);
 
   try {
     await server.handleDelete(address, filename, req.headers);
+    console.log(`(${logKey}) /delete finished`);
     res.writeHead(202);
     res.end();
   } catch (err) {
+    console.log(`(${logKey}) ${err.toString()}, return error`);
     if (err instanceof errors.ValidationError) {
       writeResponse(res, { message: err.message, error: err.name }, 401);
     } else if (err instanceof errors.AuthTokenTimestampValidationError) {
@@ -124,7 +138,7 @@ app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) =
         res, { message: err.message, error: err.name, etag: err.expectedEtag }, 412
       );
     } else {
-      console.error(err);
+      console.error(`(${logKey}) Server error`, err);
       writeResponse(res, { message: 'Server Error' }, 500);
     }
   }
@@ -134,22 +148,29 @@ app.post(
   /^\/perform-files\/([a-zA-Z0-9]+)\/?/,
   express.json({ limit: server.maxFileUploadSizeBytes }),
   runAsyncWrapper(async (req, res) => {
+    const logKey = randomString(12);
+    console.log(`(${logKey}) /perform-files receives a post request`);
 
     const address = req.params[0];
     const requestBody = req.body;
+    console.log(`(${logKey}) address: ${address}`);
+    //console.log(`(${logKey}) requestBody: ${requestBody}`); // Too big to always log
 
     try {
       const responseData = await server.handlePerformFiles(
         address, requestBody, req.headers
       );
+      console.log(`(${logKey}) Performed ${responseData.length} files`);
+      console.log(`(${logKey}) /perform-files finished`);
       writeResponse(res, responseData, 202);
     } catch (err) {
+      console.log(`(${logKey}) ${err.toString()}, return error`);
       if (err instanceof errors.ValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.AuthTokenTimestampValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else {
-        console.error(err);
+        console.error(`(${logKey}) Server error`, err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
@@ -160,25 +181,33 @@ app.post(
   /^\/list-files\/([a-zA-Z0-9]+)\/?/,
   express.json({ limit: 4096 }),
   runAsyncWrapper(async (req, res) => {
+    const logKey = randomString(12);
+    console.log(`(${logKey}) /list-files receives a post request`);
 
     const address = req.params[0];
     const requestBody = req.body;
     const page = requestBody.page ? requestBody.page : null;
     const pageSize = requestBody.pageSize ? requestBody.pageSize : null;
     const stat = !!requestBody.stat;
+    console.log(`(${logKey}) address: ${address}`);
+    console.log(`(${logKey}) page: ${page}, pageSize: ${pageSize}, stat: ${stat}`);
 
     try {
       const files = await server.handleListFiles(
         address, page, pageSize, stat, req.headers
       );
+      console.log(`(${logKey}) Got ${files.entries.length} files`);
+      console.log(`(${logKey}) New page: ${files.page}`);
+      console.log(`(${logKey}) /list-files finished`);
       writeResponse(res, { entries: files.entries, page: files.page }, 202);
     } catch (err) {
+      console.log(`(${logKey}) ${err.toString()}, return error`);
       if (err instanceof errors.ValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.AuthTokenTimestampValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else {
-        console.error(err);
+        console.error(`(${logKey}) Server error`, err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
@@ -189,16 +218,22 @@ app.post(
   /^\/revoke-all\/([a-zA-Z0-9]+)\/?/,
   express.json({ limit: 4096 }),
   runAsyncWrapper(async (req, res) => {
+    const logKey = randomString(12);
+    console.log(`(${logKey}) /revoke-all receives a post request`);
 
     if (!req.body || !req.body.oldestValidTimestamp) {
+      console.log(`(${logKey}) No req.body or oldestValidTimestamp, return error`);
       writeResponse(res, { message: 'Invalid JSON: missing oldestValidTimestamp' }, 400);
       return;
     }
 
     const address = req.params[0];
     const oldestValidTimestamp = parseInt(req.body.oldestValidTimestamp, 10);
+    console.log(`(${logKey}) address: ${address}`);
+    console.log(`(${logKey}) oldestValidTimestamp: ${oldestValidTimestamp}`);
 
     if (!Number.isFinite(oldestValidTimestamp) || oldestValidTimestamp < 0) {
+      console.log(`(${logKey}) Invalid oldestValidTimestamp, return error`);
       writeResponse(res, {
         message: 'Invalid JSON: oldestValidTimestamp is not a valid integer',
       }, 400);
@@ -207,14 +242,16 @@ app.post(
 
     try {
       await server.handleAuthBump(address, oldestValidTimestamp, req.headers);
+      console.log(`(${logKey}) /revoke-all finished`);
       writeResponse(res, { status: 'success' }, 202);
     } catch (err) {
+      console.log(`(${logKey}) ${err.toString()}, return error`);
       if (err instanceof errors.ValidationError) {
         writeResponse(res, { message: err.message, error: err.name }, 401);
       } else if (err instanceof errors.BadPathError) {
         writeResponse(res, { message: err.message, error: err.name }, 403);
       } else {
-        console.error(err);
+        console.error(`(${logKey}) Server error`, err);
         writeResponse(res, { message: 'Server Error' }, 500);
       }
     }
