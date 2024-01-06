@@ -1,5 +1,7 @@
 import { LRUCache } from 'lru-cache';
 
+import { isNumber } from './utils';
+
 export class AuthTimestampCache {
 
   constructor(driver, maxCacheSize) {
@@ -36,7 +38,7 @@ export class AuthTimestampCache {
   async getAuthTimestamp(bucketAddress) {
     // First perform fast check if auth number exists in cache.
     let authTimestamp = this.cache.get(bucketAddress);
-    if (authTimestamp) {
+    if (isNumber(authTimestamp)) {
       return authTimestamp;
     }
 
@@ -45,7 +47,7 @@ export class AuthTimestampCache {
 
     // Recheck cache for a larger timestamp to avoid race conditions from slow storage.
     const cachedTimestamp = this.cache.get(bucketAddress);
-    if (cachedTimestamp && cachedTimestamp > authTimestamp) {
+    if (isNumber(cachedTimestamp) && cachedTimestamp > authTimestamp) {
       return cachedTimestamp;
     }
 
@@ -58,7 +60,7 @@ export class AuthTimestampCache {
   async setAuthTimestamp(bucketAddress, timestamp) {
     // Recheck cache for a larger timestamp to avoid race conditions from slow storage.
     let cachedTimestamp = this.cache.get(bucketAddress);
-    if (cachedTimestamp && cachedTimestamp > timestamp) {
+    if (isNumber(cachedTimestamp) && cachedTimestamp > timestamp) {
       return;
     }
 
@@ -66,7 +68,7 @@ export class AuthTimestampCache {
 
     // In a race condition, use the newest timestamp.
     cachedTimestamp = this.cache.get(bucketAddress);
-    if (cachedTimestamp && cachedTimestamp > timestamp) {
+    if (isNumber(cachedTimestamp) && cachedTimestamp > timestamp) {
       return;
     }
 
