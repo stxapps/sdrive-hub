@@ -2,8 +2,7 @@ import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
 
 import {
-  FILE_LOG, REVOCATION, BLACKLIST, PUT_FILE, DELETE_FILE, MOVE_FILE_PUT_STEP,
-  MOVE_FILE_DEL_STEP,
+  FILE_LOG, REVOCATION, BLACKLIST, CREATE_FILE, UPDATE_FILE, DELETE_FILE,
 } from '../const';
 import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
@@ -151,12 +150,13 @@ class GcDriver {
     const filename = `${args.storageTopLevel}/${args.path}`;
     let bucketFile = this.storage.bucket(this.bucket).file(filename);
 
-    let etag = null, generation = 0, contentLength = 0;
+    let etag = null, generation = 0, contentLength = 0, action = CREATE_FILE;
 
     const stat = await this._performStat(bucketFile);
     if (stat.exists) {
       const { etag: etg, generation: gnt, contentLength: ctl } = stat;
       [etag, generation, contentLength] = [etg, gnt, ctl];
+      action = UPDATE_FILE;
     }
     this.validateMatchTag(args.ifMatchTag, etag);
     if (args.ifNoneMatchTag && args.ifNoneMatchTag === '*') {
@@ -197,7 +197,7 @@ class GcDriver {
     const udtdCtl = udtdStat.contentLength;
     const sizeChange = udtdCtl - contentLength;
     await this.saveFileLog(
-      bucketFile.name, args.assoIssAddress, PUT_FILE, udtdCtl, sizeChange
+      bucketFile.name, args.assoIssAddress, action, udtdCtl, sizeChange
     );
 
     return {
@@ -326,10 +326,10 @@ class GcDriver {
     const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
     const udtdCtl = udtdStat.contentLength;
     await this.saveFileLog(
-      bucketFile.name, args.assoIssAddress, MOVE_FILE_DEL_STEP, 0, -1 * contentLength
+      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
     );
     await this.saveFileLog(
-      newBucketFile.name, args.assoIssAddress, MOVE_FILE_PUT_STEP, udtdCtl, udtdCtl
+      newBucketFile.name, args.assoIssAddress, CREATE_FILE, udtdCtl, udtdCtl
     );
   }
 
