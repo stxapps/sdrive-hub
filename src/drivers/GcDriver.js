@@ -417,6 +417,7 @@ class GcDriver {
   }
 
   async saveFileLog(path, assoIssAddress, action, size, sizeChange) {
+    if (!assoIssAddress) assoIssAddress = 'n/a';
     const logData = [
       { name: 'path', value: path, excludeFromIndexes: true },
       { name: 'assoIssAddress', value: assoIssAddress, excludeFromIndexes: true },

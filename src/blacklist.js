@@ -40,10 +40,13 @@ export class BlacklistCache {
       this.cache.set(bucketAddress, isBkBltd);
     }
 
-    let isAiBltd = /** @type any */(this.cache.get(assoIssAddress));
-    if (![true, false].includes(isAiBltd)) {
-      isAiBltd = await this.driver.performCheckBlacklisted({ keyName: assoIssAddress });
-      this.cache.set(assoIssAddress, isAiBltd);
+    let isAiBltd = false;
+    if (assoIssAddress) {
+      isAiBltd = /** @type any */(this.cache.get(assoIssAddress));
+      if (![true, false].includes(isAiBltd)) {
+        isAiBltd = await this.driver.performCheckBlacklisted({ keyName: assoIssAddress });
+        this.cache.set(assoIssAddress, isAiBltd);
+      }
     }
 
     if (isBkBltd || isAiBltd) return true;

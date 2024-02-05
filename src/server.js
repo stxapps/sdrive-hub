@@ -184,8 +184,9 @@ export class HubServer {
       address, requestHeaders, oldestValidTokenTimestamp
     );
 
-    const isBlacklisted =
-      await this.blacklistCache.isBlacklisted(address, authObject.assoIssAddress);
+    const isBlacklisted = await this.blacklistCache.isBlacklisted(
+      address, authObject.assoIssAddress
+    );
     if (isBlacklisted) {
       throw new ValidationError(`Address ${address} is on the not authorized list`);
     }
