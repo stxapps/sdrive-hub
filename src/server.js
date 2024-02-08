@@ -460,12 +460,19 @@ export class HubServer {
           assoIssAddress: assoIssAddress,
         });
       } else {
-        await this.driver.performDelete({
-          storageTopLevel: address,
-          path,
-          ifMatchTag: null,
-          assoIssAddress: assoIssAddress,
-        });
+        const { doIgnoreDoesNotExistError } = data;
+        try {
+          await this.driver.performDelete({
+            storageTopLevel: address,
+            path,
+            ifMatchTag: null,
+            assoIssAddress: assoIssAddress,
+          });
+        } catch (error) {
+          if (!doIgnoreDoesNotExistError || !(error instanceof DoesNotExist)) {
+            throw error;
+          }
+        }
       }
 
       return { success: true, id };
@@ -511,6 +518,8 @@ export class HubServer {
           error: error.toString().slice(0, 999), success: false, id: data.id,
         });
       }
+    } else {
+      console.log('In handlePerformFiles, invalid data:', data);
     }
 
     return results;
