@@ -191,14 +191,7 @@ class GcDriver {
       throw error;
     }
 
-    await this.performBackup(bucketFile.name);
-
     const udtdStat = parseFileMetadataStat(bucketFile.metadata)
-    const udtdCtl = udtdStat.contentLength;
-    const sizeChange = udtdCtl - contentLength;
-    await this.saveFileLog(
-      bucketFile.name, args.assoIssAddress, action, udtdCtl, sizeChange
-    );
 
     return {
       publicURL: `${this.getReadURLPrefix()}${bucketFile.name}`, etag: udtdStat.etag,
@@ -231,10 +224,6 @@ class GcDriver {
 
       throw error;
     }
-
-    await this.saveFileLog(
-      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
-    );
   }
 
   async performRead(args) {
@@ -320,17 +309,6 @@ class GcDriver {
 
       throw error;
     }
-
-    await this.performBackup(newBucketFile.name);
-
-    const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
-    const udtdCtl = udtdStat.contentLength;
-    await this.saveFileLog(
-      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
-    );
-    await this.saveFileLog(
-      newBucketFile.name, args.assoIssAddress, CREATE_FILE, udtdCtl, udtdCtl
-    );
   }
 
   async performWriteAuthTimestamp(args) {
@@ -402,36 +380,6 @@ class GcDriver {
       if (ifMatchTag !== currentETag) {
         throw new PreconditionFailedError('The provided ifMatchTag does not match the resource on the server', currentETag);
       }
-    }
-  }
-
-  async performBackup(fileName) {
-    try {
-      const bucketFile = this.storage.bucket(this.bucket).file(fileName);
-      const backupBucket = this.storage.bucket(this.backupBucket)
-      await bucketFile.copy(backupBucket, { predefinedAcl: 'private' });
-    } catch (error) {
-      // Just log. Need to manually copy directly from Storage.
-      console.error(`Error performBackup: ${fileName}`, error);
-    }
-  }
-
-  async saveFileLog(path, assoIssAddress, action, size, sizeChange) {
-    if (!assoIssAddress) assoIssAddress = 'n/a';
-    const logData = [
-      { name: 'path', value: path, excludeFromIndexes: true },
-      { name: 'assoIssAddress', value: assoIssAddress, excludeFromIndexes: true },
-      { name: 'action', value: action, excludeFromIndexes: true },
-      { name: 'size', value: size, excludeFromIndexes: true },
-      { name: 'sizeChange', value: sizeChange, excludeFromIndexes: true },
-      { name: 'createDate', value: new Date() },
-    ];
-
-    try {
-      await this.datastore.save({ key: this.datastore.key([FILE_LOG]), data: logData });
-    } catch (error) {
-      // Just log. Bucket size will be wrong, need to recal direclty from Storage.
-      console.error(`Error saveFileLog: ${path}`, error);
     }
   }
 }
