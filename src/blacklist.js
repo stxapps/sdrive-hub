@@ -33,23 +33,13 @@ export class BlacklistCache {
     this.currentCacheEvictions = 0;
   }
 
-  async isBlacklisted(bucketAddress, assoIssAddress) {
-    let isBkBltd = /** @type any */(this.cache.get(bucketAddress));
-    if (![true, false].includes(isBkBltd)) {
-      isBkBltd = await this.driver.performCheckBlacklisted({ keyName: bucketAddress });
-      this.cache.set(bucketAddress, isBkBltd);
-    }
+  async isBlacklisted(address) {
+    let isBltd = /** @type any */(this.cache.get(address));
+    if ([true, false].includes(isBltd)) return isBltd;
 
-    let isAiBltd = false;
-    if (assoIssAddress) {
-      isAiBltd = /** @type any */(this.cache.get(assoIssAddress));
-      if (![true, false].includes(isAiBltd)) {
-        isAiBltd = await this.driver.performCheckBlacklisted({ keyName: assoIssAddress });
-        this.cache.set(assoIssAddress, isAiBltd);
-      }
-    }
+    isBltd = await this.driver.performCheckBlacklisted({ keyName: address });
+    this.cache.set(address, isBltd);
 
-    if (isBkBltd || isAiBltd) return true;
-    return false;
+    return isBltd;
   }
 }

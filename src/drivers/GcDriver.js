@@ -1,13 +1,15 @@
 import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
+import { CloudTasksClient } from '@google-cloud/tasks';
 
-import {
-  FILE_LOG, REVOCATION, BLACKLIST, CREATE_FILE, UPDATE_FILE, DELETE_FILE,
-} from '../const';
+import { REVOCATION, BLACKLIST, CREATE_FILE, UPDATE_FILE, DELETE_FILE } from '../const';
 import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
 } from '../errors';
 import { dateToUnixTimeSeconds, sample, isObject, isNumber, sleep } from '../utils';
+import {
+  SDRIVE_HUB_TASKER_URL, SDRIVE_HUB_TASKER_EMAIL,
+} from '../sdrive-hub-tasker-keys';
 
 const isPathValid = (path) => {
   // for now, only disallow double dots.
@@ -38,6 +40,7 @@ class GcDriver {
   constructor(config) {
     this.datastore = new Datastore();
     this.storage = new Storage();
+    this.tasks = new CloudTasksClient();
     this.bucket = config.bucket;
     this.backupBucket = config.backupBucket;
     this.pageSize = config.pageSize ? config.pageSize : 100;
@@ -191,11 +194,18 @@ class GcDriver {
       throw error;
     }
 
-    const udtdStat = parseFileMetadataStat(bucketFile.metadata)
+    const udtdStat = parseFileMetadataStat(bucketFile.metadata);
+    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
+    const size = udtdStat.contentLength;
+    const sizeChange = size - contentLength;
 
-    return {
+    const result = {
       publicURL: `${this.getReadURLPrefix()}${bucketFile.name}`, etag: udtdStat.etag,
     };
+    const backupPaths = [path];
+    const fileLogs = [{ path, assoIssAddress, action, size, sizeChange }];
+
+    return { result, backupPaths, fileLogs };
   }
 
   async performDelete(args) {
@@ -224,6 +234,14 @@ class GcDriver {
 
       throw error;
     }
+
+    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
+    const [action, size, sizeChange] = [DELETE_FILE, 0, -1 * contentLength];
+
+    const backupPaths = [];
+    const fileLogs = [{ path, assoIssAddress, action, size, sizeChange }];
+
+    return { backupPaths, fileLogs };
   }
 
   async performRead(args) {
@@ -309,6 +327,23 @@ class GcDriver {
 
       throw error;
     }
+
+    const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
+    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
+    const [action, size, sizeChange] = [DELETE_FILE, 0, -1 * contentLength];
+    const newPath = newBucketFile.name;
+    const [newAction, newSize] = [CREATE_FILE, udtdStat.contentLength];
+
+    const fileLog = { path, assoIssAddress, action, size, sizeChange };
+    const newFileLog = {
+      ...fileLog,
+      path: newPath, action: newAction, size: newSize, sizeChange: newSize,
+    };
+
+    const backupPaths = [newPath];
+    const fileLogs = [fileLog, newFileLog];
+
+    return { backupPaths, fileLogs };
   }
 
   async performWriteAuthTimestamp(args) {
@@ -380,6 +415,30 @@ class GcDriver {
       if (ifMatchTag !== currentETag) {
         throw new PreconditionFailedError('The provided ifMatchTag does not match the resource on the server', currentETag);
       }
+    }
+  }
+
+  async addTaskToQueue(backupPaths, fileLogs) {
+    if (backupPaths.length === 0 && fileLogs.length === 0) return;
+
+    const [project, location] = ['sdrive-001', 'us-central1'];
+    const queue = 'sdrive-hub-tasker';
+
+    const parent = this.tasks.queuePath(project, location, queue);
+    const task = {
+      httpRequest: {
+        headers: { 'Content-Type': 'application/json', },
+        httpMethod: /** @type any */('POST'),
+        url: SDRIVE_HUB_TASKER_URL,
+        body: JSON.stringify({ backupPaths, fileLogs }),
+        oidcToken: { serviceAccountEmail: SDRIVE_HUB_TASKER_EMAIL },
+      },
+    };
+
+    try {
+      await this.tasks.createTask({ parent, task });
+    } catch (error) {
+      console.error('addTaskToQueue error', error);
     }
   }
 }

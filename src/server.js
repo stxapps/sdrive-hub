@@ -156,11 +156,12 @@ export class HubServer {
       throw new PreconditionFailedError('Not support if-none-match for file deletion.');
     }
 
+    let result;
     if (isArchivalRestricted) {
       // if archival restricted then just rename the canonical file
       //   to the historical file.
       const historicalPath = this.getHistoricalFileName(path);
-      await this.driver.performRename({
+      result = await this.driver.performRename({
         path: path,
         storageTopLevel: address,
         newPath: historicalPath,
@@ -168,27 +169,42 @@ export class HubServer {
         assoIssAddress: authObject.assoIssAddress,
       });
     } else {
-      await this.driver.performDelete({
+      result = await this.driver.performDelete({
         storageTopLevel: address,
         path,
         ifMatchTag: ifMatchTag,
         assoIssAddress: authObject.assoIssAddress,
       });
     }
+
+    const backupPaths = [], fileLogs = [];
+    if (isObject(result)) {
+      backupPaths.push(...result.backupPaths);
+      fileLogs.push(...result.fileLogs);
+    }
+    await this.driver.addTaskToQueue(backupPaths, fileLogs);
   }
 
   async handleRequest(address, path, requestHeaders, stream) {
-    const oldestValidTokenTimestamp =
-      await this.authTimestampCache.getAuthTimestamp(address);
+    const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
+      this.authTimestampCache.getAuthTimestamp(address),
+      this.blacklistCache.isBlacklisted(address),
+    ]);
+    if (isBkBltd) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
+
     const authObject = this.validate(
       address, requestHeaders, oldestValidTokenTimestamp
     );
-
-    const isBlacklisted = await this.blacklistCache.isBlacklisted(
-      address, authObject.assoIssAddress
-    );
-    if (isBlacklisted) {
-      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    if (authObject.assoIssAddress !== null) {
+      // Not check for now. Can avoid easily by not providing assoIssAddress.
+      /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+        authObject.assoIssAddress
+      );
+      if (isAiBltd) {
+        throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);
+      }*/
     }
 
     // can the caller write? if so, in what paths?
@@ -240,10 +256,11 @@ export class HubServer {
       throw new PayloadTooLargeError(errMsg);
     }
 
+    let rnResult;
     if (isArchivalRestricted) {
       const historicalPath = this.getHistoricalFileName(path);
       try {
-        await this.driver.performRename({
+        rnResult = await this.driver.performRename({
           path: path,
           storageTopLevel: address,
           newPath: historicalPath,
@@ -302,10 +319,19 @@ export class HubServer {
       ifNoneMatchTag: ifNoneMatchTag,
       assoIssAddress: authObject.assoIssAddress,
     };
-    let [writeResponse] = await Promise.all([
+    const [wResult] = await Promise.all([
       this.driver.performWrite(writeCommand), pipelinePromise,
     ]);
-    writeResponse = this.fixWriteResponse(writeResponse)
+    const writeResponse = this.fixWriteResponse(wResult.result)
+
+    const backupPaths = [], fileLogs = [];
+    if (isObject(rnResult)) {
+      backupPaths.push(...rnResult.backupPaths);
+      fileLogs.push(...rnResult.fileLogs);
+    }
+    backupPaths.push(...wResult.backupPaths);
+    fileLogs.push(...wResult.fileLogs);
+    await this.driver.addTaskToQueue(backupPaths, fileLogs);
 
     return writeResponse;
   }
@@ -392,10 +418,11 @@ export class HubServer {
         throw new PayloadTooLargeError(errMsg);
       }
 
+      let rnResult;
       if (isArchivalRestricted) {
         const historicalPath = this.getHistoricalFileName(path);
         try {
-          await this.driver.performRename({
+          rnResult = await this.driver.performRename({
             path: path,
             storageTopLevel: address,
             newPath: historicalPath,
@@ -425,10 +452,19 @@ export class HubServer {
         ifNoneMatchTag: null,
         assoIssAddress: assoIssAddress,
       };
-      let writeResponse = await this.driver.performWrite(writeCommand);
-      writeResponse = this.fixWriteResponse(writeResponse);
+      const wResult = await this.driver.performWrite(writeCommand);
+      let writeResponse = this.fixWriteResponse(wResult.result);
+      writeResponse = { ...writeResponse, success: true, id };
 
-      return { ...writeResponse, success: true, id };
+      const backupPaths = [], fileLogs = [];
+      if (isObject(rnResult)) {
+        backupPaths.push(...rnResult.backupPaths);
+        fileLogs.push(...rnResult.fileLogs);
+      }
+      backupPaths.push(...wResult.backupPaths);
+      fileLogs.push(...wResult.fileLogs);
+
+      return { result: writeResponse, backupPaths, fileLogs };
     }
 
     if (type === DELETE_FILE) {
@@ -448,11 +484,12 @@ export class HubServer {
         }
       }
 
+      let result;
       if (isArchivalRestricted) {
         // if archival restricted then just rename the canonical file
         //   to the historical file.
         const historicalPath = this.getHistoricalFileName(path);
-        await this.driver.performRename({
+        result = await this.driver.performRename({
           path: path,
           storageTopLevel: address,
           newPath: historicalPath,
@@ -462,7 +499,7 @@ export class HubServer {
       } else {
         const { doIgnoreDoesNotExistError } = data;
         try {
-          await this.driver.performDelete({
+          result = await this.driver.performDelete({
             storageTopLevel: address,
             path,
             ifMatchTag: null,
@@ -475,7 +512,13 @@ export class HubServer {
         }
       }
 
-      return { success: true, id };
+      const backupPaths = [], fileLogs = [];
+      if (isObject(result)) {
+        backupPaths.push(...result.backupPaths);
+        fileLogs.push(...result.fileLogs);
+      }
+
+      return { result: { success: true, id }, backupPaths, fileLogs };
     }
 
     throw new InvalidInputError(`Invalid data.type: ${data.type}`);
@@ -491,7 +534,7 @@ export class HubServer {
             address, assoIssAddress, scopes, value
           );
           results.push(...pResults);
-          if (pResults.some(result => !result.success)) break;
+          if (pResults.some(pResult => !pResult.result.success)) break;
         }
       } else {
         const nItems = 10;
@@ -509,14 +552,15 @@ export class HubServer {
       }
     } else if (isString(data.id) && isString(data.type) && isString(data.path)) {
       try {
-        const result = await this._handlePerformFile(
+        const pResult = await this._handlePerformFile(
           address, assoIssAddress, scopes, data
         );
-        results.push(result);
+        results.push(pResult);
       } catch (error) {
-        results.push({
+        const result = {
           error: error.toString().slice(0, 999), success: false, id: data.id,
-        });
+        };
+        results.push({ result, backupPaths: [], fileLogs: [] });
       }
     } else {
       console.log('In handlePerformFiles, invalid data:', data);
@@ -526,23 +570,41 @@ export class HubServer {
   }
 
   async handlePerformFiles(address, requestBody, requestHeaders) {
-    const oldestValidTokenTimestamp =
-      await this.authTimestampCache.getAuthTimestamp(address);
+    const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
+      this.authTimestampCache.getAuthTimestamp(address),
+      this.blacklistCache.isBlacklisted(address),
+    ]);
+    if (isBkBltd) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
+
     const authObject = this.validate(
       address, requestHeaders, oldestValidTokenTimestamp
     );
-
-    const isBlacklisted =
-      await this.blacklistCache.isBlacklisted(address, authObject.assoIssAddress);
-    if (isBlacklisted) {
-      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    if (authObject.assoIssAddress !== null) {
+      // Not check for now. Can avoid easily by not providing assoIssAddress.
+      /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+        authObject.assoIssAddress
+      );
+      if (isAiBltd) {
+        throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);
+      }*/
     }
 
     const scopes = authObject.parseAuthScopes();
 
-    const response = await this._handlePerformFiles(
+    const pResults = await this._handlePerformFiles(
       address, authObject.assoIssAddress, scopes, requestBody
     );
+
+    const response = [], backupPaths = [], fileLogs = [];
+    for (const pfResult of pResults) {
+      response.push(pfResult.result);
+      backupPaths.push(...pfResult.backupPaths);
+      fileLogs.push(...pfResult.fileLogs);
+    }
+    await this.driver.addTaskToQueue(backupPaths, fileLogs);
+
     return response;
   }
 }
