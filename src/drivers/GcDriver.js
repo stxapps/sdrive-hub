@@ -195,17 +195,16 @@ class GcDriver {
     }
 
     const udtdStat = parseFileMetadataStat(bucketFile.metadata);
-    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
-    const size = udtdStat.contentLength;
-    const sizeChange = size - contentLength;
-
+    const udtdCtl = udtdStat.contentLength;
+    const ctlChange = udtdCtl - contentLength;
     const result = {
       publicURL: `${this.getReadURLPrefix()}${bucketFile.name}`, etag: udtdStat.etag,
     };
-    const backupPaths = [path];
-    const fileLogs = [{ path, assoIssAddress, action, size, sizeChange }];
+    const fileLog = this.createFileLog(
+      bucketFile.name, args.assoIssAddress, action, udtdCtl, ctlChange
+    );
 
-    return { result, backupPaths, fileLogs };
+    return { result, backupPaths: [bucketFile.name], fileLogs: [fileLog] };
   }
 
   async performDelete(args) {
@@ -235,13 +234,11 @@ class GcDriver {
       throw error;
     }
 
-    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
-    const [action, size, sizeChange] = [DELETE_FILE, 0, -1 * contentLength];
+    const fileLog = this.createFileLog(
+      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
+    );
 
-    const backupPaths = [];
-    const fileLogs = [{ path, assoIssAddress, action, size, sizeChange }];
-
-    return { backupPaths, fileLogs };
+    return { backupPaths: [], fileLogs: [fileLog] };
   }
 
   async performRead(args) {
@@ -329,21 +326,15 @@ class GcDriver {
     }
 
     const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
-    const [path, assoIssAddress] = [bucketFile.name, args.assoIssAddress];
-    const [action, size, sizeChange] = [DELETE_FILE, 0, -1 * contentLength];
-    const newPath = newBucketFile.name;
-    const [newAction, newSize] = [CREATE_FILE, udtdStat.contentLength];
+    const udtdCtl = udtdStat.contentLength;
+    const fileLog = this.createFileLog(
+      bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
+    );
+    const newFileLog = this.createFileLog(
+      newBucketFile.name, args.assoIssAddress, CREATE_FILE, udtdCtl, udtdCtl
+    );
 
-    const fileLog = { path, assoIssAddress, action, size, sizeChange };
-    const newFileLog = {
-      ...fileLog,
-      path: newPath, action: newAction, size: newSize, sizeChange: newSize,
-    };
-
-    const backupPaths = [newPath];
-    const fileLogs = [fileLog, newFileLog];
-
-    return { backupPaths, fileLogs };
+    return { backupPaths: [newBucketFile.name], fileLogs: [fileLog, newFileLog] };
   }
 
   async performWriteAuthTimestamp(args) {
@@ -416,6 +407,12 @@ class GcDriver {
         throw new PreconditionFailedError('The provided ifMatchTag does not match the resource on the server', currentETag);
       }
     }
+  }
+
+  createFileLog(path, assoIssAddress, action, size, sizeChange) {
+    const createDT = Date.now();
+    const fileLog = { path, assoIssAddress, action, size, sizeChange, createDT };
+    return fileLog;
   }
 
   async addTaskToQueue(backupPaths, fileLogs) {
