@@ -427,7 +427,7 @@ class GcDriver {
         headers: { 'Content-Type': 'application/json', },
         httpMethod: /** @type any */('POST'),
         url: SDRIVE_HUB_TASKER_URL,
-        body: JSON.stringify({ backupPaths, fileLogs }),
+        body: Buffer.from(JSON.stringify({ backupPaths, fileLogs })).toString("base64"),
         oidcToken: { serviceAccountEmail: SDRIVE_HUB_TASKER_EMAIL },
       },
     };
