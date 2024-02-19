@@ -6,7 +6,9 @@ import { REVOCATION, BLACKLIST, CREATE_FILE, UPDATE_FILE, DELETE_FILE } from '..
 import {
   PreconditionFailedError, BadPathError, InvalidInputError, DoesNotExist,
 } from '../errors';
-import { dateToUnixTimeSeconds, sample, isObject, isNumber, sleep } from '../utils';
+import {
+  dateToUnixTimeSeconds, sample, isObject, isString, isNumber, sleep,
+} from '../utils';
 import {
   SDRIVE_HUB_TASKER_URL, SDRIVE_HUB_TASKER_EMAIL,
 } from '../sdrive-hub-tasker-keys';
@@ -194,7 +196,7 @@ class GcDriver {
       throw error;
     }
 
-    const udtdStat = parseFileMetadataStat(bucketFile.metadata);
+    const udtdStat = await this._performStat(bucketFile);
     const udtdCtl = udtdStat.contentLength;
     const ctlChange = udtdCtl - contentLength;
     const result = {
@@ -241,30 +243,12 @@ class GcDriver {
     return { backupPaths: [], fileLogs: [fileLog] };
   }
 
-  async performRead(args) {
-    if (!isPathValid(args.path)) {
-      throw new BadPathError('Invalid Path');
-    }
-
-    const filename = `${args.storageTopLevel}/${args.path}`;
-    const bucketFile = this.storage.bucket(this.bucket).file(filename);
-
-    try {
-      const [getResult] = await bucketFile.get({ autoCreate: false });
-      const statResult = parseFileMetadataStat(getResult.metadata);
-      const dataStream = getResult.createReadStream();
-      const result = { ...statResult, exists: true, data: dataStream };
-      return result;
-    } catch (error) {
-      if (error.code === 404) {
-        throw new DoesNotExist('File does not exist');
-      }
-
-      throw error;
-    }
-  }
-
   async _performStat(bucketFile) {
+    if (isObject(bucketFile.metadata) && isString(bucketFile.metadata.md5Hash)) {
+      const result = parseFileMetadataStat(bucketFile.metadata);
+      return result;
+    }
+
     try {
       const [metadataResult] = await bucketFile.getMetadata();
       const result = parseFileMetadataStat(metadataResult);
@@ -325,7 +309,7 @@ class GcDriver {
       throw error;
     }
 
-    const udtdStat = parseFileMetadataStat(newBucketFile.metadata);
+    const udtdStat = await this._performStat(newBucketFile);
     const udtdCtl = udtdStat.contentLength;
     const fileLog = this.createFileLog(
       bucketFile.name, args.assoIssAddress, DELETE_FILE, 0, -1 * contentLength
