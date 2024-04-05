@@ -1,18 +1,10 @@
-import * as ecpair from 'ecpair';
-import * as ecc from 'tiny-secp256k1';
 import { decodeToken, TokenVerifier } from 'jsontokens';
-import { ecPairToAddress } from '@stacks/encryption';
+import { publicKeyToBtcAddress } from '@stacks/encryption';
 
 import { ValidationError, AuthTokenTimestampValidationError } from './errors';
 import { isNumber } from './utils';
 
 export const LATEST_AUTH_VERSION = 'v1';
-const ECPair = ecpair.ECPairFactory(ecc);
-
-const pubkeyHexToECPair = (pubkeyHex) => {
-  const pkBuff = Buffer.from(pubkeyHex, 'hex');
-  return ECPair.fromPublicKey(pkBuff);
-};
 
 export class AuthScopeValues {
   constructor() {
@@ -135,13 +127,13 @@ export class V1Authentication {
     }
 
     // the bearer of the association token must have authorized the bearer
-    const childAddress = ecPairToAddress(pubkeyHexToECPair(childPublicKey));
+    const childAddress = publicKeyToBtcAddress(childPublicKey);
     if (childAddress !== bearerAddress) {
       throw new ValidationError(`Association token child key ${childPublicKey} does not match ${bearerAddress}`);
     }
 
     this.assoPayload = payload;
-    this.assoIssAddress = ecPairToAddress(pubkeyHexToECPair(publicKey));
+    this.assoIssAddress = publicKeyToBtcAddress(publicKey);
   }
 
   parseAuthScopes() {
@@ -225,7 +217,7 @@ export class V1Authentication {
       }
     }
 
-    const issuerAddress = ecPairToAddress(pubkeyHexToECPair(publicKey));
+    const issuerAddress = publicKeyToBtcAddress(publicKey);
 
     if (issuerAddress !== address) {
       throw new ValidationError('Address not allowed to write on this path');
