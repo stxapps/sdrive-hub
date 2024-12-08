@@ -1,8 +1,10 @@
 import * as crypto from 'crypto';
 import { TokenSigner } from 'jsontokens';
-import { getPublicKeyFromPrivate, publicKeyToAddress } from '@stacks/encryption';
+import { getPublicKeyFromPrivate, /*publicKeyToAddress*/ } from '@stacks/encryption';
 
+import { Datastore } from '@google-cloud/datastore';
 import { Storage } from '@google-cloud/storage';
+import { BLACKLIST } from './const';
 
 const makeAssociationToken = (privateKey, childPublicKey) => {
   const FOUR_MONTH_SECONDS = 60 * 60 * 24 * 31 * 4;
@@ -64,8 +66,8 @@ const playAuthToken = async () => {
   const appPublicKey = getPublicKeyFromPrivate(appPrivateKey);
   console.log('appPublicKey', appPublicKey);
 
-  const appAddress = publicKeyToAddress(appPublicKey);
-  console.log('appAddress', appAddress);
+  //const appAddress = publicKeyToAddress(appPublicKey);
+  //console.log('appAddress', appAddress);
 
   const assoToken = makeAssociationToken(dataPrivateKey, appPublicKey);
 
@@ -123,4 +125,15 @@ const play2 = async () => {
   const result = await res.json();
   console.log(result);
 };
-play2();
+//play2();
+
+const play3 = async () => {
+  const datastore = new Datastore();
+  const key = datastore.key([BLACKLIST, '1NEGXF4cg7wqsnkGXXDxdJgUGnRP14ofLF']);
+  const data = [
+    { name: 'type', value: 0 },
+    { name: 'createDate', value: new Date() },
+  ];
+  await datastore.save({ key, data: data });
+};
+play3();
