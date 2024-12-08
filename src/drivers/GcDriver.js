@@ -375,14 +375,18 @@ class GcDriver {
     return timestamp;
   }
 
-  async performCheckBlacklisted(args) {
-    const { keyName } = args;
+  async performReadBlacklistType(args) {
+    const { address } = args;
 
-    const key = this.datastore.key([BLACKLIST, keyName]);
+    const key = this.datastore.key([BLACKLIST, address]);
     const [entity] = await this.datastore.get(key);
 
-    if (isObject(entity)) return true;
-    return false;
+    let type = 0;
+    if (isObject(entity) && isNumber(entity.type)) {
+      type = entity.type;
+    }
+
+    return type;
   }
 
   validateMatchTag(ifMatchTag, currentETag) {

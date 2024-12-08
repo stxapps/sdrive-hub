@@ -5,7 +5,7 @@ import {
 } from './errors';
 import { AuthTimestampCache } from './revocations';
 import { BlacklistCache } from './blacklist';
-import { PUT_FILE, DELETE_FILE } from './const';
+import { PUT_FILE, DELETE_FILE, LIST_FILES, PERFORM_FILES } from './const';
 import {
   generateUniqueID, bytesToMegabytes, megabytesToBytes, monitorStreamProgress, isString,
   isObject,
@@ -50,11 +50,26 @@ export class HubServer {
   }
 
   async handleListFiles(address, page, pageSize, stat, requestHeaders) {
-    const oldestValidTokenTimestamp =
-      await this.authTimestampCache.getAuthTimestamp(address);
+    const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
+      this.authTimestampCache.getAuthTimestamp(address),
+      this.blacklistCache.isBlacklisted(address, LIST_FILES),
+    ]);
+    if (isBkBltd) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
+
     const authObject = this.validate(
       address, requestHeaders, oldestValidTokenTimestamp
     );
+    if (authObject.assoIssAddress !== null) {
+      // Not check for now. Can avoid easily by not providing assoIssAddress.
+      /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+        authObject.assoIssAddress, LIST_FILES
+      );
+      if (isAiBltd) {
+        throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);
+      }*/
+    }
 
     const scopes = authObject.parseAuthScopes();
     const isArchivalRestricted = this.isArchivalRestricted(scopes);
@@ -124,11 +139,26 @@ export class HubServer {
   }
 
   async handleDelete(address, path, requestHeaders) {
-    const oldestValidTokenTimestamp =
-      await this.authTimestampCache.getAuthTimestamp(address);
+    const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
+      this.authTimestampCache.getAuthTimestamp(address),
+      this.blacklistCache.isBlacklisted(address, DELETE_FILE),
+    ]);
+    if (isBkBltd) {
+      throw new ValidationError(`Address ${address} is on the not authorized list`);
+    }
+
     const authObject = this.validate(
       address, requestHeaders, oldestValidTokenTimestamp
     );
+    if (authObject.assoIssAddress !== null) {
+      // Not check for now. Can avoid easily by not providing assoIssAddress.
+      /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+        authObject.assoIssAddress, DELETE_FILE
+      );
+      if (isAiBltd) {
+        throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);
+      }*/
+    }
 
     // can the caller delete? if so, in what paths?
     const scopes = authObject.parseAuthScopes();
@@ -188,7 +218,7 @@ export class HubServer {
   async handleRequest(address, path, requestHeaders, stream) {
     const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
       this.authTimestampCache.getAuthTimestamp(address),
-      this.blacklistCache.isBlacklisted(address),
+      this.blacklistCache.isBlacklisted(address, PUT_FILE),
     ]);
     if (isBkBltd) {
       throw new ValidationError(`Address ${address} is on the not authorized list`);
@@ -200,7 +230,7 @@ export class HubServer {
     if (authObject.assoIssAddress !== null) {
       // Not check for now. Can avoid easily by not providing assoIssAddress.
       /*const isAiBltd = await this.blacklistCache.isBlacklisted(
-        authObject.assoIssAddress
+        authObject.assoIssAddress, PUT_FILE
       );
       if (isAiBltd) {
         throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);
@@ -383,6 +413,20 @@ export class HubServer {
     const isArchivalRestricted = this.checkArchivalRestrictions(address, path, scopes);
 
     if (type === PUT_FILE) {
+      const isBkBltd = await this.blacklistCache.isBlacklisted(address, PUT_FILE);
+      if (isBkBltd) {
+        throw new ValidationError(`Address ${address} is on the not authorized list`);
+      }
+      if (assoIssAddress !== null) {
+        // Not check for now. Can avoid easily by not providing assoIssAddress.
+        /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+          assoIssAddress, PUT_FILE
+        );
+        if (isAiBltd) {
+          throw new ValidationError(`assoIssAddress ${assoIssAddress} is on the not authorized list`);
+        }*/
+      }
+
       if (scopes.writePrefixes.length > 0 || scopes.writePaths.length > 0) {
         // we're limited to a set of prefixes and paths.
         // does the given path match any prefixes?
@@ -468,6 +512,20 @@ export class HubServer {
     }
 
     if (type === DELETE_FILE) {
+      const isBkBltd = await this.blacklistCache.isBlacklisted(address, DELETE_FILE);
+      if (isBkBltd) {
+        throw new ValidationError(`Address ${address} is on the not authorized list`);
+      }
+      if (assoIssAddress !== null) {
+        // Not check for now. Can avoid easily by not providing assoIssAddress.
+        /*const isAiBltd = await this.blacklistCache.isBlacklisted(
+          assoIssAddress, DELETE_FILE
+        );
+        if (isAiBltd) {
+          throw new ValidationError(`assoIssAddress ${assoIssAddress} is on the not authorized list`);
+        }*/
+      }
+
       if (scopes.deletePrefixes.length > 0 || scopes.deletePaths.length > 0) {
         // we're limited to a set of prefixes and paths.
         // does the given path match any prefixes?
@@ -572,7 +630,7 @@ export class HubServer {
   async handlePerformFiles(address, requestBody, requestHeaders) {
     const [oldestValidTokenTimestamp, isBkBltd] = await Promise.all([
       this.authTimestampCache.getAuthTimestamp(address),
-      this.blacklistCache.isBlacklisted(address),
+      this.blacklistCache.isBlacklisted(address, PERFORM_FILES),
     ]);
     if (isBkBltd) {
       throw new ValidationError(`Address ${address} is on the not authorized list`);
@@ -584,7 +642,7 @@ export class HubServer {
     if (authObject.assoIssAddress !== null) {
       // Not check for now. Can avoid easily by not providing assoIssAddress.
       /*const isAiBltd = await this.blacklistCache.isBlacklisted(
-        authObject.assoIssAddress
+        authObject.assoIssAddress, PERFORM_FILES
       );
       if (isAiBltd) {
         throw new ValidationError(`assoIssAddress ${authObject.assoIssAddress} is on the not authorized list`);

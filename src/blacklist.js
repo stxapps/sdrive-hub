@@ -1,5 +1,8 @@
 import { LRUCache } from 'lru-cache';
 
+import { PUT_FILE } from './const';
+import { isNumber } from './utils';
+
 export class BlacklistCache {
 
   constructor(driver, maxCacheSize) {
@@ -33,13 +36,21 @@ export class BlacklistCache {
     this.currentCacheEvictions = 0;
   }
 
-  async isBlacklisted(address) {
-    let isBltd = /** @type any */(this.cache.get(address));
-    if ([true, false].includes(isBltd)) return isBltd;
+  async getBlacklistType(address) {
+    let type = this.cache.get(address);
+    if (isNumber(type)) return type;
 
-    isBltd = await this.driver.performCheckBlacklisted({ keyName: address });
-    this.cache.set(address, isBltd);
+    type = await this.driver.performReadBlacklistType({ address });
 
-    return isBltd;
+    this.cache.set(address, type);
+    return type;
+  }
+
+  async isBlacklisted(address, performType) {
+    const type = await this.getBlacklistType(address);
+    if (type === 0) return false;
+    if (type === 1) return true;
+    if (type === 2 && performType === PUT_FILE) return true;
+    return false;
   }
 }
