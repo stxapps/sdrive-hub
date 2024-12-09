@@ -105,14 +105,14 @@ const play1 = async () => {
 
   const bucket = storage.bucket('sdrive-001.appspot.com');
 
-  const file = bucket.file('1JNsK64gpFc63a3RVrwGXebXZRxo2zJULn/test2.json');
+  const file = bucket.file('1JN/test2.json');
   console.log(file.metadata);
 
   await file.getMetadata();
 
   console.log(file.metadata);
 
-  /*const res = await bucket.file('1JNsK64gpFc63a3RVrwGXebXZRxo2zJULn/test2.json').delete();
+  /*const res = await bucket.file('1JN/test2.json').delete();
   const what = res[0].body;
   console.log(what);*/
 };
@@ -120,7 +120,7 @@ const play1 = async () => {
 
 const play2 = async () => {
   const res = await fetch(
-    "https://api.hiro.so/v1/addresses/stacks/SP1V7W5N0Y9KKY3QG73GQH0NZWJ65VBNJY93HKATD"
+    "https://api.hiro.so/v1/addresses/stacks/SP1"
   );
   const result = await res.json();
   console.log(result);
@@ -129,9 +129,9 @@ const play2 = async () => {
 
 const play3 = async () => {
   const datastore = new Datastore();
-  const key = datastore.key([BLACKLIST, '1NEGXF4cg7wqsnkGXXDxdJgUGnRP14ofLF']);
+  const key = datastore.key([BLACKLIST, '']);
   const data = [
-    { name: 'type', value: 0 },
+    { name: 'type', value: 1 },
     { name: 'createDate', value: new Date() },
   ];
   await datastore.save({ key, data: data });
