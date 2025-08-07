@@ -80,11 +80,25 @@ export const isObject = (val) => {
 };
 
 export const isString = (val) => {
-  return typeof val === 'string' || val instanceof String;
+  return typeof val === 'string';
 };
 
 export const isNumber = (val) => {
   return typeof val === 'number' && isFinite(val);
 };
 
+export const isFldStr = (val) => {
+  return isString(val) && val.length > 0;
+};
+
 export const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+export const getTrace = (req) => {
+  let trace = req.get('traceparent');
+  if (isFldStr(trace)) return trace;
+
+  trace = req.get('X-Cloud-Trace-Context');
+  if (isFldStr(trace)) return trace;
+
+  return '';
+};

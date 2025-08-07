@@ -412,10 +412,10 @@ class GcDriver {
     const parent = this.tasks.queuePath(project, location, queue);
     const task = {
       httpRequest: {
-        headers: { 'Content-Type': 'application/json', },
+        headers: { 'Content-Type': 'application/json' },
         httpMethod: /** @type any */('POST'),
         url: SDRIVE_HUB_TASKER_URL,
-        body: Buffer.from(JSON.stringify({ backupPaths, fileLogs })).toString("base64"),
+        body: Buffer.from(JSON.stringify({ backupPaths, fileLogs })).toString('base64'),
         oidcToken: { serviceAccountEmail: SDRIVE_HUB_TASKER_EMAIL },
       },
     };

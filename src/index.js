@@ -6,7 +6,7 @@ import { HubServer } from './server';
 import GcDriver from './drivers/GcDriver'
 import * as errors from './errors';
 import config from './config';
-import { runAsyncWrapper, randomString } from './utils';
+import { runAsyncWrapper, randomString, getTrace } from './utils';
 
 const getDriverClass = (driver) => {
   if (driver === 'google-cloud') {
@@ -64,6 +64,7 @@ app.use(corsConfig);
 app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
   const logKey = randomString(12);
   console.log(`(${logKey}) /store receives a post request`);
+  console.log(`(${logKey}) trace: ${getTrace(req)}`);
 
   let filename = req.params[1];
   if (filename.endsWith('/')) {
@@ -107,6 +108,7 @@ app.post(/^\/store\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
 app.delete(/^\/delete\/([a-zA-Z0-9]+)\/(.+)/, runAsyncWrapper(async (req, res) => {
   const logKey = randomString(12);
   console.log(`(${logKey}) /delete receives a delete request`);
+  console.log(`(${logKey}) trace: ${getTrace(req)}`);
 
   let filename = req.params[1];
   if (filename.endsWith('/')) {
@@ -150,6 +152,7 @@ app.post(
   runAsyncWrapper(async (req, res) => {
     const logKey = randomString(12);
     console.log(`(${logKey}) /perform-files receives a post request`);
+    console.log(`(${logKey}) trace: ${getTrace(req)}`);
 
     const address = req.params[0];
     const requestBody = req.body;
@@ -183,6 +186,7 @@ app.post(
   runAsyncWrapper(async (req, res) => {
     const logKey = randomString(12);
     console.log(`(${logKey}) /list-files receives a post request`);
+    console.log(`(${logKey}) trace: ${getTrace(req)}`);
 
     const address = req.params[0];
     const requestBody = req.body;
@@ -220,6 +224,7 @@ app.post(
   runAsyncWrapper(async (req, res) => {
     const logKey = randomString(12);
     console.log(`(${logKey}) /revoke-all receives a post request`);
+    console.log(`(${logKey}) trace: ${getTrace(req)}`);
 
     if (!req.body || !req.body.oldestValidTimestamp) {
       console.log(`(${logKey}) No req.body or oldestValidTimestamp, return error`);
