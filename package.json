@@ -3,7 +3,7 @@
   "version": "0.8.0",
   "private": true,
   "engines": {
-    "node": "20.x.x"
+    "node": "24.x.x"
   },
   "type": "module",
   "scripts": {
@@ -16,15 +16,15 @@
     "play": "GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcloud/legacy_credentials/brace@brace.to/sdrive-001-adeb2f2dcdc2.json node --import=specifier-resolution-node/register src/playground.js"
   },
   "dependencies": {
-    "@google-cloud/datastore": "^8.3.0",
-    "@google-cloud/storage": "^7.7.0",
-    "@google-cloud/tasks": "^5.1.0",
-    "@stacks/encryption": "^6.13.0",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
+    "@google-cloud/datastore": "^10.1.1",
+    "@google-cloud/storage": "^7.22.0",
+    "@google-cloud/tasks": "^5.5.2",
+    "@stacks/encryption": "^6.17.0",
+    "cors": "^2.8.6",
+    "express": "^4.22.3",
     "jsontokens": "^4.0.1",
-    "lru-cache": "^10.1.0",
-    "nanoid": "^5.0.4",
-    "specifier-resolution-node": "^1.1.1"
+    "lru-cache": "^10.4.3",
+    "nanoid": "^5.1.16",
+    "specifier-resolution-node": "^1.1.4"
   }
 }
