@@ -1,6 +1,6 @@
 service: hub
 
-runtime: nodejs20
+runtime: nodejs24
 
 instance_class: F1
 
